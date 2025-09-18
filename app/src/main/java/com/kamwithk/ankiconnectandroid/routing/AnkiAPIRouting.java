@@ -76,38 +76,38 @@ public class AnkiAPIRouting {
                 return storeMediaFile(raw_json);
             case "notesInfo":
                 return notesInfo(raw_json);
-            case "multi":
-                JsonArray actions = Parser.getMultiActions(raw_json);
-                JsonArray results = new JsonArray();
+			case "multi":
+				JsonArray actions = Parser.getMultiActions(raw_json);
+				JsonArray results = new JsonArray();
 
-                for (JsonElement jsonElement : actions) {
-                    JsonObject subAction = jsonElement.getAsJsonObject();
-                    // int version = Parser.get_version(subAction, 4); // No longer needed here
-                    JsonElement subResponse;
-                    
-                    try {
-                        // ---- FIX STARTS HERE ----
+				for (JsonElement jsonElement : actions) {
+					JsonObject subAction = jsonElement.getAsJsonObject();
+					JsonElement subResponse;
+					
+					try {
+						// ---- FIX STARTS HERE ----
+						// The multi action in AnkiConnect is expected to return a list of wrapped results,
+						// not raw results. This change ensures compatibility with clients like the
+						// Obsidian-to-Anki plugin.
 
-                        // Always find the route and parse its raw result.
-                        // The multi action should return a list of raw results,
-                        // never a list of {result: ..., error: ...} objects.
-                        String rawResultString = findRoute(subAction);
-                        subResponse = JsonParser.parseString(rawResultString);
-                        
-                        // ---- FIX ENDS HERE ----
+						int version = Parser.get_version(subAction, 4);
+						String rawResultString = findRoute(subAction);
+						JsonElement rawJson = JsonParser.parseString(rawResultString);
+						subResponse = formatSuccessReply(rawJson, version);
 
-                    } catch (Exception e) {
-                        // If an individual action fails, AnkiConnect desktop returns
-                        // a specific error object in its place in the list.
-                        JsonObject errorResponse = new JsonObject();
-                        errorResponse.add("result", null);
-                        errorResponse.addProperty("error", e.getMessage());
-                        subResponse = errorResponse;
-                    }
-                    results.add(subResponse);
-                }
+						// ---- FIX ENDS HERE ----
 
-                return Parser.gson.toJson(results);
+					} catch (Exception e) {
+						// If an individual action fails, AnkiConnect desktop returns
+						// a specific error object in its place in the list.
+						JsonObject errorResponse = new JsonObject();
+						errorResponse.add("result", null);
+						errorResponse.addProperty("error", e.getMessage());
+						subResponse = errorResponse;
+					}
+					results.add(subResponse);
+				}
+				return Parser.gson.toJson(results);
             default:
                 return default_version();
         }
