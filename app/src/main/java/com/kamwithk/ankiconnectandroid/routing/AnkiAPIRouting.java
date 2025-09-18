@@ -107,7 +107,7 @@ public class AnkiAPIRouting {
                     results.add(subResponse);
                 }
 
-                return Parser.gson.toJson(results
+                return Parser.gson.toJson(results);
             default:
                 return default_version();
         }
