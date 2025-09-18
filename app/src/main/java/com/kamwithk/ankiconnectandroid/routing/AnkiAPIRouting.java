@@ -78,26 +78,8 @@ public class AnkiAPIRouting {
                 return notesInfo(raw_json);
 			case "createDeck":
 				String deckName = raw_json.get("params").getAsJsonObject().get("deck").getAsString();
-				try {
-					// deckAPI.getDeckID will throw an exception if the deck doesn't exist.
-					// Anki-Connect's createDeck action actually just gets the ID if it exists
-					// or creates it if it doesn't. AnkiDroid API handles this implicitly.
-					Long deckId = deckAPI.getDeckID(deckName);
-					return String.valueOf(deckId);
-				} catch (Exception e) {
-					// If getDeckID fails, it's because the deck doesn't exist.
-					// The AddContentApi doesn't have a direct createDeck method, but getting the ID
-					// for a non-existent deck is often handled by simply trying to add a card to it,
-					// or by just getting the list and adding it if missing. deckAPI.getDeckID
-					// is sufficient as it will create one if needed by AnkiDroid's provider.
-					// For our purposes, we can assume if it fails here, we should try to get it again,
-					// or just return the ID after forcing creation if AnkiDroid's API needs it.
-					// A simpler approach that works with most clients is to just get the deck list,
-					// and if the deck isn't there, Anki will create it upon the first card addition.
-					// So, we just get the ID.
-					return String.valueOf(deckAPI.getDeckID(deckName));
-				}
-			// -------------------------
+				Long deckId = deckAPI.getDeckID(deckName);
+				return String.valueOf(deckId);
 			case "multi":
 				JsonArray actions = Parser.getMultiActions(raw_json);
 				JsonArray results = new JsonArray();
@@ -107,26 +89,28 @@ public class AnkiAPIRouting {
 					JsonElement subResponse;
 					
 					try {
-						// ---- CORRECTED LOGIC ----
-						// This now mimics the desktop AnkiConnect behavior.
-						// It calls findRoute for the sub-action to get the raw result,
-						// then immediately wraps that result before adding it to the list.
-						
-						int version = Parser.get_version(subAction, 4);
+						// The result of findRoute is already the final, formatted response
+						// for the sub-action. We just need to parse it and add it to our list.
+						// The double-wrapping was the mistake.
 						String rawResultString = findRoute(subAction);
-						JsonElement rawJson = JsonParser.parseString(rawResultString);
-						subResponse = formatSuccessReply(rawJson, version);
+						subResponse = JsonParser.parseString(rawResultString);
 
 					} catch (Exception e) {
-						// If an individual action fails, create a standard error object.
+						// This part is correct. If a sub-action throws, we need to create
+						// a standard error object for it.
+						int version = Parser.get_version(subAction, 4);
 						JsonObject errorResponse = new JsonObject();
 						errorResponse.add("result", null);
 						errorResponse.addProperty("error", e.getMessage());
-						subResponse = errorResponse;
+						
+						// The error must ALSO be wrapped according to the version of the *main* multi call.
+						// No, the desktop addon returns the error object directly.
+						 subResponse = errorResponse;
 					}
 					results.add(subResponse);
 				}
 
+				// multi itself returns a raw array of the results.
 				return Parser.gson.toJson(results);
             default:
                 return default_version();
@@ -250,40 +234,45 @@ public class AnkiAPIRouting {
         return noteId;
     }
 
-    private String addNotes(JsonObject raw_json) throws Exception {
-        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
-        ArrayList<Long> addedNoteIds = new ArrayList<>();
+	private String addNotes(JsonObject raw_json) throws Exception {
+		JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
+		JsonArray addedNoteResults = new JsonArray(); // This will hold the final array of wrapped results
+		int version = Parser.get_version(raw_json, 4);
 
-        for (JsonElement noteElement : notes) {
-            JsonObject noteObject = noteElement.getAsJsonObject();
+		for (JsonElement noteElement : notes) {
+			JsonObject noteObject = noteElement.getAsJsonObject();
+			JsonObject temp_raw_json = new JsonObject();
+			JsonObject params = new JsonObject();
+			params.add("note", noteObject);
+			temp_raw_json.add("params", params);
 
-            JsonObject temp_raw_json = new JsonObject();
-            JsonObject params = new JsonObject();
-            params.add("note", noteObject);
-            temp_raw_json.add("params", params);
+			Long noteId = null;
+			try {
+				Map<String, String> noteValues = Parser.getNoteValues(temp_raw_json);
+				ArrayList<MediaRequest> mediaRequests = Parser.getNoteMediaRequests(temp_raw_json);
+				integratedAPI.addMedia(noteValues, mediaRequests);
+				noteId = integratedAPI.addNote(
+						noteValues,
+						Parser.getDeckName(temp_raw_json),
+						Parser.getModelName(temp_raw_json),
+						Parser.getNoteTags(temp_raw_json)
+				);
+				
+				// On success, add the WRAPPED note ID to our results array
+				addedNoteResults.add(formatSuccessReply(JsonParser.parseString(String.valueOf(noteId)), version));
+			} catch (Exception e) {
+				// If one note fails, we add a wrapped error object for it.
+				// This is crucial for compatibility.
+				JsonObject errorResponse = new JsonObject();
+				errorResponse.add("result", null);
+				errorResponse.addProperty("error", e.getMessage());
+				addedNoteResults.add(errorResponse);
+			}
+		}
 
-            Map<String, String> noteValues = Parser.getNoteValues(temp_raw_json);
-
-            ArrayList<MediaRequest> mediaRequests = Parser.getNoteMediaRequests(temp_raw_json);
-            integratedAPI.addMedia(noteValues, mediaRequests);
-
-            Long noteId = integratedAPI.addNote(
-                    noteValues,
-                    Parser.getDeckName(temp_raw_json),
-                    Parser.getModelName(temp_raw_json),
-                    Parser.getNoteTags(temp_raw_json)
-            );
-
-            if (noteId != null) {
-                addedNoteIds.add(noteId);
-            } else {
-                addedNoteIds.add(null);
-            }
-        }
-
-        return Parser.gson.toJson(addedNoteIds);
-    }
-
+		// Return the array of wrapped results. This is what the plugin expects.
+		return Parser.gson.toJson(addedNoteResults);
+	}
     private String deleteNotes(JsonObject raw_json) throws Exception {
         ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
         long[] ids = new long[noteIds.size()];
