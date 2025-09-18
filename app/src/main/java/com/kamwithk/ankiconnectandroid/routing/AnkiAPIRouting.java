@@ -81,12 +81,26 @@ public class AnkiAPIRouting {
                 JsonArray results = new JsonArray();
 
                 for (JsonElement jsonElement : actions) {
-                    int version = Parser.get_version(jsonElement.getAsJsonObject(), 4);
-                    String routeResult = findRoute(jsonElement.getAsJsonObject());
-
-                    JsonElement routeResultJson = JsonParser.parseString(routeResult);
-                    JsonElement response = formatSuccessReply(routeResultJson, version);
-                    results.add(response);
+                    JsonObject subAction = jsonElement.getAsJsonObject();
+                    int version = Parser.get_version(subAction, 4);
+                    JsonElement subResponse;
+                    
+                    try {
+                        // Attempt to process the sub-action
+                        String rawResultString = findRoute(subAction);
+                        JsonElement parsedResult = JsonParser.parseString(rawResultString);
+                        
+                        // If it succeeds, format a success reply
+                        subResponse = formatSuccessReply(parsedResult, version);
+                    } catch (Exception e) {
+                        // If it fails, create a specific error object for this sub-action
+                        JsonObject errorResponse = new JsonObject();
+                        errorResponse.add("result", null);
+                        // Using e.getMessage() is cleaner than the full stack trace
+                        errorResponse.addProperty("error", e.getMessage());
+                        subResponse = errorResponse;
+                    }
+                    results.add(subResponse);
                 }
 
                 return Parser.gson.toJson(results);
