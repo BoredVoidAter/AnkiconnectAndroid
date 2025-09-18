@@ -76,7 +76,7 @@ public class AnkiAPIRouting {
                 return storeMediaFile(raw_json);
             case "notesInfo":
                 return notesInfo(raw_json);
-            case "multi":
+			case "multi":
                 JsonArray actions = Parser.getMultiActions(raw_json);
                 JsonArray results = new JsonArray();
 
@@ -96,7 +96,6 @@ public class AnkiAPIRouting {
                         // If it fails, create a specific error object for this sub-action
                         JsonObject errorResponse = new JsonObject();
                         errorResponse.add("result", null);
-                        // Using e.getMessage() is cleaner than the full stack trace
                         errorResponse.addProperty("error", e.getMessage());
                         subResponse = errorResponse;
                     }
@@ -312,16 +311,13 @@ public class AnkiAPIRouting {
         BinaryFile binaryFile = new BinaryFile();
         binaryFile.setFilename(Parser.getMediaFilename(raw_json));
         binaryFile.setData(Parser.getMediaData(raw_json));
-
-        // Get the single filename returned by the API
-        String filename = integratedAPI.storeMediaFile(binaryFile);
-
-        // Create a list and add the filename to it
-        java.util.List<String> resultList = new java.util.ArrayList<>();
-        resultList.add(filename);
-
-        // Return the list as a JSON array
-        return Parser.gson.toJson(resultList);
+        
+        // The desktop API returns null on success, so we do the same.
+        // We still call the method to actually store the file, but we discard its return value.
+        integratedAPI.storeMediaFile(binaryFile);
+        
+        // Return the JSON literal "null" as a string.
+        return "null";
     }
 
     private String notesInfo(JsonObject raw_json) throws Exception {

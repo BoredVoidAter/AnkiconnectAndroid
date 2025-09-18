@@ -44,6 +44,23 @@ public class RouteHandler extends RouterNanoHTTPD.DefaultHandler {
     public NanoHTTPD.Response.IStatus getStatus() {
         return NanoHTTPD.Response.Status.OK;
     }
+	
+	@Override
+    public NanoHTTPD.Response serve(RouterNanoHTTPD.UriResource uriResource, Map<String, String> urlParams, NanoHTTPD.IHTTPSession session) {
+        if (NanoHTTPD.Method.OPTIONS.equals(session.getMethod())) {
+            // This is a pre-flight request for CORS. We have to respond successfully for the real request to be sent.
+            NanoHTTPD.Response response = newFixedLengthResponse(NanoHTTPD.Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, "");
+            Context context = uriResource.initParameter(0, Context.class);
+            // We must add the same CORS headers to the pre-flight response
+            addCorsHeaders(context, response);
+            // We must also specify what methods and headers are allowed
+            response.addHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+            response.addHeader("Access-Control-Allow-Headers", "Content-Type");
+            return response;
+        }
+        // For all other methods (POST, GET), let the default handler do its job, which will call our "get" method.
+        return super.serve(uriResource, urlParams, session);
+    }
 
     public NanoHTTPD.Response get(RouterNanoHTTPD.UriResource uriResource, Map<String, String> urlParams, NanoHTTPD.IHTTPSession session) {
 //        Setup
