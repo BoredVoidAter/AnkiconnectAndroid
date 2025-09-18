@@ -76,6 +76,7 @@ public class AnkiAPIRouting {
                 return storeMediaFile(raw_json);
             case "notesInfo":
                 return notesInfo(raw_json);
+			
 			case "multi":
 				JsonArray actions = Parser.getMultiActions(raw_json);
 				JsonArray results = new JsonArray();
@@ -85,21 +86,18 @@ public class AnkiAPIRouting {
 					JsonElement subResponse;
 					
 					try {
-						// ---- FIX STARTS HERE ----
-						// The multi action in AnkiConnect is expected to return a list of wrapped results,
-						// not raw results. This change ensures compatibility with clients like the
-						// Obsidian-to-Anki plugin.
-
+						// ---- CORRECTED LOGIC ----
+						// This now mimics the desktop AnkiConnect behavior.
+						// It calls findRoute for the sub-action to get the raw result,
+						// then immediately wraps that result before adding it to the list.
+						
 						int version = Parser.get_version(subAction, 4);
 						String rawResultString = findRoute(subAction);
 						JsonElement rawJson = JsonParser.parseString(rawResultString);
 						subResponse = formatSuccessReply(rawJson, version);
 
-						// ---- FIX ENDS HERE ----
-
 					} catch (Exception e) {
-						// If an individual action fails, AnkiConnect desktop returns
-						// a specific error object in its place in the list.
+						// If an individual action fails, create a standard error object.
 						JsonObject errorResponse = new JsonObject();
 						errorResponse.add("result", null);
 						errorResponse.addProperty("error", e.getMessage());
@@ -107,6 +105,7 @@ public class AnkiAPIRouting {
 					}
 					results.add(subResponse);
 				}
+
 				return Parser.gson.toJson(results);
             default:
                 return default_version();
