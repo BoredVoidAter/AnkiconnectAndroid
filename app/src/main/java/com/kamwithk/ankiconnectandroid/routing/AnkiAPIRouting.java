@@ -88,7 +88,20 @@ public class AnkiAPIRouting {
                     try {
                         String rawResultString = findRoute(subAction);
                         JsonElement parsedResult = JsonParser.parseString(rawResultString);
-                        subResponse = formatSuccessReply(parsedResult, version);
+                        
+                        // ---- FIX STARTS HERE ----
+                        
+                        // If the sub-action was itself a 'multi' request, we should not wrap its result.
+                        // We return the raw result array to match the desktop AnkiConnect behavior.
+                        // For any other action, we wrap it in the standard success/error format.
+                        if (Parser.get_action(subAction).equals("multi")) {
+                            subResponse = parsedResult;
+                        } else {
+                            subResponse = formatSuccessReply(parsedResult, version);
+                        }
+                        
+                        // ---- FIX ENDS HERE ----
+
                     } catch (Exception e) {
                         JsonObject errorResponse = new JsonObject();
                         errorResponse.add("result", null);

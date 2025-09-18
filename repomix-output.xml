@@ -3224,43 +3224,6 @@ public class LocalAudioRouteHandler extends RouterNanoHTTPD.DefaultHandler {
 }
 </file>
 
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/Router.java">
-package com.kamwithk.ankiconnectandroid.routing;
-
-import android.content.Context;
-import fi.iki.elonen.NanoHTTPD;
-import fi.iki.elonen.router.RouterNanoHTTPD;
-
-import java.io.IOException;
-
-public class Router extends RouterNanoHTTPD {
-    private Context context;
-    public static String contentType;
-
-    public Router(Integer port, Context context) throws IOException {
-        super(port);
-        this.context = context;
-
-        contentType = new ContentType("; charset=UTF-8").getContentTypeHeader();
-        addMappings();
-        start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
-    }
-
-    public void setContext(Context context) {
-        this.context = context;
-    }
-
-    @Override
-    public void addMappings() {
-        addRoute("/", RouteHandler.class, this.context);
-        addRoute("/localaudio/(.)+", LocalAudioRouteHandler.class, this.context);
-        // for some reason, none of these work, so the above is used instead
-        // addRoute("/localaudio/:source/(.)+", LocalAudioRouteHandler.class, this.context);
-        // addRoute("/localaudio/:source/:file", LocalAudioRouteHandler.class, this.context);
-    }
-}
-</file>
-
 <file path="app/src/main/java/com/kamwithk/ankiconnectandroid/SettingsActivity.java">
 package com.kamwithk.ankiconnectandroid;
 
@@ -3412,6 +3375,64 @@ public class SettingsActivity extends AppCompatActivity {
 
     </PreferenceCategory>
 </PreferenceScreen>
+</file>
+
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/Router.java">
+package com.kamwithk.ankiconnectandroid.routing;
+
+import android.content.Context;
+import androidx.preference.PreferenceManager;
+import fi.iki.elonen.NanoHTTPD;
+import fi.iki.elonen.router.RouterNanoHTTPD;
+
+import java.io.IOException;
+
+public class Router extends RouterNanoHTTPD {
+    private Context context;
+    public static String contentType;
+
+    public Router(Integer port, Context context) throws IOException {
+        super(port);
+        this.context = context;
+
+        contentType = new ContentType("; charset=UTF-8").getContentTypeHeader();
+        addMappings();
+        start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+    }
+
+    public void setContext(Context context) {
+        this.context = context;
+    }
+
+    @Override
+    public void addMappings() {
+        addRoute("/", RouteHandler.class, this.context);
+        addRoute("/localaudio/(.)+", LocalAudioRouteHandler.class, this.context);
+    }
+
+    @Override
+    public Response serve(IHTTPSession session) {
+        if (Method.OPTIONS.equals(session.getMethod())) {
+            // This is a pre-flight request for CORS. We must respond successfully
+            // for the browser to send the actual POST request.
+            Response response = newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, null, 0);
+
+            // We must add the same CORS headers to the pre-flight response
+            android.content.SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this.context);
+            String corsHost = sharedPreferences.getString("cors_host", "");
+            if (!corsHost.trim().equals("")) {
+                response.addHeader("Access-Control-Allow-Origin", corsHost);
+                response.addHeader("Access-Control-Allow-Headers", "*");
+                response.addHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+            }
+            
+            return response;
+        }
+
+        // For all other methods (like POST and GET), let the default router do its job.
+        return super.serve(session);
+    }
+}
 </file>
 
 <file path="app/src/main/java/com/kamwithk/ankiconnectandroid/request_parsers/Parser.java">
@@ -3678,416 +3699,6 @@ public class JPodAudioSource extends LocalAudioSource {
     @Override
     public String getSourceName(Entry entry) {
         return "JPod101";
-    }
-}
-</file>
-
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/RouteHandler.java">
-package com.kamwithk.ankiconnectandroid.routing;
-
-import static com.kamwithk.ankiconnectandroid.routing.Router.contentType;
-
-import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
-
-import android.content.Context;
-import android.content.SharedPreferences;
-
-import androidx.preference.PreferenceManager;
-
-import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
-
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import fi.iki.elonen.NanoHTTPD;
-import fi.iki.elonen.router.RouterNanoHTTPD;
-
-public class RouteHandler extends RouterNanoHTTPD.DefaultHandler {
-
-    private APIHandler apiHandler = null;
-    private static final String PRIVATE_NETWORK_ACCESS_REQUEST = "Access-Control-Request-Private-Network";
-    private static final String PRIVATE_NETWORK_ACCESS_RESPONSE = "Access-Control-Allow-Private-Network";
-
-
-    public RouteHandler() {
-        super();
-    }
-
-    @Override
-    public String getText() {
-        return "not implemented";
-    }
-
-    @Override
-    public String getMimeType() {
-        return "text/json";
-    }
-
-    @Override
-    public NanoHTTPD.Response.IStatus getStatus() {
-        return NanoHTTPD.Response.Status.OK;
-    }
-
-    public NanoHTTPD.Response get(RouterNanoHTTPD.UriResource uriResource, Map<String, String> urlParams, NanoHTTPD.IHTTPSession session) {
-//        Setup
-        Context context = uriResource.initParameter(0, Context.class);
-        if (apiHandler == null) {
-            apiHandler = new APIHandler(new IntegratedAPI(context), context);
-        }
-
-//        Enforce UTF-8 encoding (response doesn't always contain by default)
-        session.getHeaders().put("content-type", contentType);
-
-        Map<String, String> files = new HashMap<>();
-        try {
-            session.parseBody(files);
-        } catch (IOException | NanoHTTPD.ResponseException e) {
-            e.printStackTrace();
-        }
-
-        Map<String, List<String>> parameters = session.getParameters();
-        if (parameters == null || parameters.isEmpty() && files.get("postData") == null) {
-            // No data was provided in the POST request so we return a simple response
-            NanoHTTPD.Response rep = newFixedLengthResponse("Ankiconnect Android is running.");
-            addCorsHeaders(context, rep);
-            return rep;
-        }
-
-        NanoHTTPD.Response rep = apiHandler.chooseAPI(files.get("postData"), parameters);
-
-        // Include this header so that if a public origin is included in the whitelist, then browsers
-        // won't fail due to the private network access check
-        if (Boolean.parseBoolean(session.getHeaders().get(PRIVATE_NETWORK_ACCESS_REQUEST))) {
-            rep.addHeader(PRIVATE_NETWORK_ACCESS_RESPONSE, "true");
-        }
-
-        addCorsHeaders(context, rep);
-        return rep;
-    }
-
-    private void addCorsHeaders(Context context, NanoHTTPD.Response rep) {
-        // Add a CORS header if it is set in the preferences
-        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
-        String corsHost = sharedPreferences.getString("cors_host", "");
-
-        if (!corsHost.trim().equals("")) {
-            rep.addHeader("Access-Control-Allow-Origin", corsHost);
-            rep.addHeader("Access-Control-Allow-Headers", "*");
-        }
-    }
-}
-</file>
-
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/AnkiAPIRouting.java">
-package com.kamwithk.ankiconnectandroid.routing;
-
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.BinaryFile;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.DeckAPI;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.MediaAPI;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.ModelAPI;
-import com.kamwithk.ankiconnectandroid.request_parsers.NoteRequest;
-import com.kamwithk.ankiconnectandroid.request_parsers.Parser;
-import com.kamwithk.ankiconnectandroid.request_parsers.MediaRequest;
-
-import fi.iki.elonen.NanoHTTPD;
-
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-
-import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
-
-import android.util.Log;
-
-
-public class AnkiAPIRouting {
-    private final IntegratedAPI integratedAPI;
-    private final DeckAPI deckAPI;
-    private final ModelAPI modelAPI;
-    private final MediaAPI mediaAPI;
-
-    public AnkiAPIRouting(IntegratedAPI integratedAPI) {
-        this.integratedAPI = integratedAPI;
-        deckAPI = integratedAPI.deckAPI;
-        modelAPI = integratedAPI.modelAPI;
-        mediaAPI = integratedAPI.mediaAPI;
-    }
-
-    private String findRoute(JsonObject raw_json) throws Exception {
-        switch (Parser.get_action(raw_json)) {
-            case "version":
-                return version();
-            case "deckNames":
-                return deckNames();
-            case "deckNamesAndIds":
-                return deckNamesAndIds();
-            case "modelNames":
-                return modelNames();
-            case "modelNamesAndIds":
-                return modelNamesAndIds();
-            case "modelFieldNames":
-                return modelFieldNames(raw_json);
-            case "findNotes":
-                return findNotes(raw_json);
-            case "guiBrowse":
-                return guiBrowse(raw_json);
-            case "canAddNotes":
-                return canAddNotes(raw_json);
-            case "canAddNotesWithErrorDetail":
-                return canAddNotesWithErrorDetail(raw_json);
-            case "addNote":
-                return addNote(raw_json);
-            case "addNotes":
-                return addNotes(raw_json);
-            case "deleteNotes":
-                return deleteNotes(raw_json);
-            case "updateNoteFields":
-                return updateNoteFields(raw_json);
-            case "updateNotes":
-                return updateNotes(raw_json);
-            case "storeMediaFile":
-                return storeMediaFile(raw_json);
-            case "notesInfo":
-                return notesInfo(raw_json);
-            case "multi":
-                JsonArray actions = Parser.getMultiActions(raw_json);
-                JsonArray results = new JsonArray();
-
-                for (JsonElement jsonElement : actions) {
-                    int version = Parser.get_version(jsonElement.getAsJsonObject(), 4);
-                    String routeResult = findRoute(jsonElement.getAsJsonObject());
-
-                    JsonElement routeResultJson = JsonParser.parseString(routeResult);
-                    JsonElement response = formatSuccessReply(routeResultJson, version);
-                    results.add(response);
-                }
-
-                return Parser.gson.toJson(results);
-            default:
-                return default_version();
-        }
-    }
-
-    /* taken from anki-connect's web.py: format_success_reply */
-    public JsonElement formatSuccessReply(JsonElement raw_json, int version) {
-        if (version <= 4) {
-            return raw_json;
-        } else {
-            JsonObject reply = new JsonObject();
-            reply.add("result", raw_json);
-            reply.add("error", null);
-            return reply;
-        }
-    }
-
-    public NanoHTTPD.Response findRouteHandleError(JsonObject raw_json) {
-        try {
-            int version = Parser.get_version(raw_json, 4);
-            String response = formatSuccessReply(JsonParser.parseString(findRoute(raw_json)), version).toString();
-            Log.d("AnkiConnectAndroid", "response json: " + response);
-            return returnResponse(response);
-        } catch (Exception e) {
-            Map<String, String> response = new HashMap<>();
-            response.put("result", null);
-
-            StringWriter sw = new StringWriter();
-            try {
-                try (PrintWriter pw = new PrintWriter(sw)) {
-                    e.printStackTrace(pw);
-                }
-                response.put("error", e.getMessage() + sw);
-            } finally {
-                try {
-                    sw.close();
-                } catch (IOException ex) {
-                    ex.printStackTrace();
-                }
-            }
-            return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/json", Parser.gson.toJson(response));
-        }
-    }
-
-    private NanoHTTPD.Response returnResponse(String response) {
-        return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/json", response);
-    }
-
-    private String version() {
-        return "6";
-    }
-
-    private String default_version() {
-        return "\"AnkiConnect v.6\"";
-    }
-
-    private String deckNames() throws Exception {
-        return Parser.gson.toJson(deckAPI.deckNames());
-    }
-
-    private String deckNamesAndIds() throws Exception {
-        return Parser.gson.toJson(deckAPI.deckNamesAndIds());
-    }
-
-    private String modelNames() throws Exception {
-        return Parser.gson.toJson(modelAPI.modelNames());
-    }
-
-    private String modelNamesAndIds() throws Exception {
-        return Parser.gson.toJson(modelAPI.modelNamesAndIds(0));
-    }
-
-    private String modelFieldNames(JsonObject raw_json) throws Exception {
-        String model_name = Parser.getModelNameFromParam(raw_json);
-        if (model_name != null && !model_name.equals("")) {
-            Long model_id = modelAPI.getModelID(model_name, 0);
-
-            return Parser.gson.toJson(modelAPI.modelFieldNames(model_id));
-        } else {
-            Map<String, String> response = new HashMap<>();
-            response.put("result", null);
-            response.put("error", "model was not found: ");
-
-            return Parser.gson.toJson(response);
-        }
-    }
-
-    private String findNotes(JsonObject raw_json) {
-        return Parser.gson.toJson(integratedAPI.noteAPI.findNotes(Parser.getNoteQuery(raw_json)));
-    }
-
-    private String guiBrowse(JsonObject raw_json) {
-        String query = Parser.getNoteQuery(raw_json);
-        return Parser.gson.toJson(integratedAPI.guiBrowse(query));
-    }
-
-    private String canAddNotes(JsonObject raw_json) throws Exception {
-        ArrayList<NoteRequest> notes_to_test = Parser.getNoteFront(raw_json);
-        return Parser.gson.toJson(integratedAPI.canAddNotes(notes_to_test));
-    }
-
-    private String canAddNotesWithErrorDetail(JsonObject raw_json) throws Exception {
-        ArrayList<NoteRequest> notes_to_test = Parser.getNoteFront(raw_json);
-        return Parser.gsonNoSerialize.toJson(integratedAPI.canAddNotesWithErrorDetail(notes_to_test));
-    }
-
-    /**
-     * Add a new note to Anki.
-     * The note can include media files, which will be downloaded.
-     * AnkiConnect desktop also supports other formats, but this method only supports downloadable media files.
-     */
-    private String addNote(JsonObject raw_json) throws Exception {
-        Map<String, String> noteValues = Parser.getNoteValues(raw_json);
-
-        ArrayList<MediaRequest> mediaRequests =
-                Parser.getNoteMediaRequests(raw_json);
-        integratedAPI.addMedia(noteValues, mediaRequests);
-
-        String noteId = String.valueOf(integratedAPI.addNote(
-                noteValues,
-                Parser.getDeckName(raw_json),
-                Parser.getModelName(raw_json),
-                Parser.getNoteTags(raw_json)
-        ));
-
-        return noteId;
-    }
-
-    private String addNotes(JsonObject raw_json) throws Exception {
-        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
-        ArrayList<Long> addedNoteIds = new ArrayList<>();
-
-        for (JsonElement noteElement : notes) {
-            JsonObject noteObject = noteElement.getAsJsonObject();
-
-            // Create a temporary raw_json for parsing a single note, mimicking an "addNote" request structure
-            JsonObject temp_raw_json = new JsonObject();
-            JsonObject params = new JsonObject();
-            params.add("note", noteObject);
-            temp_raw_json.add("params", params);
-
-            Map<String, String> noteValues = Parser.getNoteValues(temp_raw_json);
-
-            ArrayList<MediaRequest> mediaRequests = Parser.getNoteMediaRequests(temp_raw_json);
-            integratedAPI.addMedia(noteValues, mediaRequests);
-
-            Long noteId = integratedAPI.addNote(
-                    noteValues,
-                    Parser.getDeckName(temp_raw_json),
-                    Parser.getModelName(temp_raw_json),
-                    Parser.getNoteTags(temp_raw_json)
-            );
-
-            if (noteId != null) {
-                addedNoteIds.add(noteId);
-            } else {
-                addedNoteIds.add(null);
-            }
-        }
-
-        return Parser.gson.toJson(addedNoteIds);
-    }
-
-    private String deleteNotes(JsonObject raw_json) throws Exception {
-        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
-        long[] ids = new long[noteIds.size()];
-        for (int i = 0; i < noteIds.size(); i++) {
-            ids[i] = noteIds.get(i);
-        }
-        integratedAPI.deleteNotes(ids);
-        return "null";
-    }
-
-    private String updateNoteFields(JsonObject raw_json) throws Exception {
-        integratedAPI.updateNoteFields(
-                Parser.getUpdateNoteFieldsId(raw_json),
-                Parser.getUpdateNoteFieldsFields(raw_json),
-                Parser.getNoteMediaRequests(raw_json)
-        );
-        return "null";
-    }
-
-    private String updateNotes(JsonObject raw_json) throws Exception {
-        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
-
-        for (JsonElement noteElement : notes) {
-            JsonObject noteObject = noteElement.getAsJsonObject();
-
-            // Create a temporary raw_json for parsing a single note update
-            JsonObject temp_raw_json = new JsonObject();
-            JsonObject params = new JsonObject();
-            params.add("note", noteObject);
-            temp_raw_json.add("params", params);
-
-            integratedAPI.updateNoteFields(
-                    Parser.getUpdateNoteFieldsId(temp_raw_json),
-                    Parser.getUpdateNoteFieldsFields(temp_raw_json),
-                    Parser.getNoteMediaRequests(temp_raw_json)
-            );
-        }
-
-        return "null";
-    }
-
-    private String storeMediaFile(JsonObject raw_json) throws Exception {
-        BinaryFile binaryFile = new BinaryFile();
-        binaryFile.setFilename(Parser.getMediaFilename(raw_json));
-        binaryFile.setData(Parser.getMediaData(raw_json));
-
-        return Parser.gson.toJson(integratedAPI.storeMediaFile(binaryFile));
-    }
-
-    private String notesInfo(JsonObject raw_json) throws Exception {
-        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
-        return Parser.gson.toJson(integratedAPI.noteAPI.notesInfo(noteIds));
     }
 }
 </file>
@@ -4502,6 +4113,420 @@ public class NoteAPI {
             }
         }
         return notesInfoList;
+    }
+}
+</file>
+
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/RouteHandler.java">
+package com.kamwithk.ankiconnectandroid.routing;
+
+import static com.kamwithk.ankiconnectandroid.routing.Router.contentType;
+
+import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import androidx.preference.PreferenceManager;
+
+import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import fi.iki.elonen.NanoHTTPD;
+import fi.iki.elonen.router.RouterNanoHTTPD;
+
+public class RouteHandler extends RouterNanoHTTPD.DefaultHandler {
+
+    private APIHandler apiHandler = null;
+    private static final String PRIVATE_NETWORK_ACCESS_REQUEST = "Access-Control-Request-Private-Network";
+    private static final String PRIVATE_NETWORK_ACCESS_RESPONSE = "Access-Control-Allow-Private-Network";
+
+
+    public RouteHandler() {
+        super();
+    }
+
+    @Override
+    public String getText() {
+        return "not implemented";
+    }
+
+    @Override
+    public String getMimeType() {
+        return "text/json";
+    }
+
+    @Override
+    public NanoHTTPD.Response.IStatus getStatus() {
+        return NanoHTTPD.Response.Status.OK;
+    }
+	
+
+    public NanoHTTPD.Response get(RouterNanoHTTPD.UriResource uriResource, Map<String, String> urlParams, NanoHTTPD.IHTTPSession session) {
+//        Setup
+        Context context = uriResource.initParameter(0, Context.class);
+        if (apiHandler == null) {
+            apiHandler = new APIHandler(new IntegratedAPI(context), context);
+        }
+
+//        Enforce UTF-8 encoding (response doesn't always contain by default)
+        session.getHeaders().put("content-type", contentType);
+
+        Map<String, String> files = new HashMap<>();
+        try {
+            session.parseBody(files);
+        } catch (IOException | NanoHTTPD.ResponseException e) {
+            e.printStackTrace();
+        }
+
+        Map<String, List<String>> parameters = session.getParameters();
+        if (parameters == null || parameters.isEmpty() && files.get("postData") == null) {
+            // No data was provided in the POST request so we return a simple response
+            NanoHTTPD.Response rep = newFixedLengthResponse("Ankiconnect Android is running.");
+            addCorsHeaders(context, rep);
+            return rep;
+        }
+
+        NanoHTTPD.Response rep = apiHandler.chooseAPI(files.get("postData"), parameters);
+
+        // Include this header so that if a public origin is included in the whitelist, then browsers
+        // won't fail due to the private network access check
+        if (Boolean.parseBoolean(session.getHeaders().get(PRIVATE_NETWORK_ACCESS_REQUEST))) {
+            rep.addHeader(PRIVATE_NETWORK_ACCESS_RESPONSE, "true");
+        }
+
+        addCorsHeaders(context, rep);
+        return rep;
+    }
+
+    private void addCorsHeaders(Context context, NanoHTTPD.Response rep) {
+        // Add a CORS header if it is set in the preferences
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+        String corsHost = sharedPreferences.getString("cors_host", "");
+
+        if (!corsHost.trim().equals("")) {
+            rep.addHeader("Access-Control-Allow-Origin", corsHost);
+            rep.addHeader("Access-Control-Allow-Headers", "*");
+        }
+    }
+}
+</file>
+
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/AnkiAPIRouting.java">
+package com.kamwithk.ankiconnectandroid.routing;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.BinaryFile;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.DeckAPI;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.MediaAPI;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.ModelAPI;
+import com.kamwithk.ankiconnectandroid.request_parsers.NoteRequest;
+import com.kamwithk.ankiconnectandroid.request_parsers.Parser;
+import com.kamwithk.ankiconnectandroid.request_parsers.MediaRequest;
+
+import fi.iki.elonen.NanoHTTPD;
+
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+
+import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
+
+import android.util.Log;
+
+
+public class AnkiAPIRouting {
+    private final IntegratedAPI integratedAPI;
+    private final DeckAPI deckAPI;
+    private final ModelAPI modelAPI;
+    private final MediaAPI mediaAPI;
+
+    public AnkiAPIRouting(IntegratedAPI integratedAPI) {
+        this.integratedAPI = integratedAPI;
+        deckAPI = integratedAPI.deckAPI;
+        modelAPI = integratedAPI.modelAPI;
+        mediaAPI = integratedAPI.mediaAPI;
+    }
+
+    private String findRoute(JsonObject raw_json) throws Exception {
+        switch (Parser.get_action(raw_json)) {
+            case "version":
+                return version();
+            case "deckNames":
+                return deckNames();
+            case "deckNamesAndIds":
+                return deckNamesAndIds();
+            case "modelNames":
+                return modelNames();
+            case "modelNamesAndIds":
+                return modelNamesAndIds();
+            case "modelFieldNames":
+                return modelFieldNames(raw_json);
+            case "findNotes":
+                return findNotes(raw_json);
+            case "guiBrowse":
+                return guiBrowse(raw_json);
+            case "canAddNotes":
+                return canAddNotes(raw_json);
+            case "canAddNotesWithErrorDetail":
+                return canAddNotesWithErrorDetail(raw_json);
+            case "addNote":
+                return addNote(raw_json);
+            case "addNotes":
+                return addNotes(raw_json);
+            case "deleteNotes":
+                return deleteNotes(raw_json);
+            case "updateNoteFields":
+                return updateNoteFields(raw_json);
+            case "updateNotes":
+                return updateNotes(raw_json);
+            case "storeMediaFile":
+                return storeMediaFile(raw_json);
+            case "notesInfo":
+                return notesInfo(raw_json);
+            case "multi":
+                JsonArray actions = Parser.getMultiActions(raw_json);
+                JsonArray results = new JsonArray();
+
+                for (JsonElement jsonElement : actions) {
+                    JsonObject subAction = jsonElement.getAsJsonObject();
+                    int version = Parser.get_version(subAction, 4);
+                    JsonElement subResponse;
+                    
+                    try {
+                        String rawResultString = findRoute(subAction);
+                        JsonElement parsedResult = JsonParser.parseString(rawResultString);
+                        subResponse = formatSuccessReply(parsedResult, version);
+                    } catch (Exception e) {
+                        JsonObject errorResponse = new JsonObject();
+                        errorResponse.add("result", null);
+                        errorResponse.addProperty("error", e.getMessage());
+                        subResponse = errorResponse;
+                    }
+                    results.add(subResponse);
+                }
+
+                return Parser.gson.toJson(results);
+            default:
+                return default_version();
+        }
+    }
+
+    public JsonElement formatSuccessReply(JsonElement raw_json, int version) {
+        if (version <= 4) {
+            return raw_json;
+        } else {
+            JsonObject reply = new JsonObject();
+            reply.add("result", raw_json);
+            reply.add("error", null);
+            return reply;
+        }
+    }
+
+    public NanoHTTPD.Response findRouteHandleError(JsonObject raw_json) {
+        try {
+            int version = Parser.get_version(raw_json, 4);
+            String response = formatSuccessReply(JsonParser.parseString(findRoute(raw_json)), version).toString();
+            Log.d("AnkiConnectAndroid", "response json: " + response);
+            return returnResponse(response);
+        } catch (Exception e) {
+            Map<String, String> response = new HashMap<>();
+            response.put("result", null);
+
+            StringWriter sw = new StringWriter();
+            try {
+                try (PrintWriter pw = new PrintWriter(sw)) {
+                    e.printStackTrace(pw);
+                }
+                response.put("error", e.getMessage() + sw);
+            } finally {
+                try {
+                    sw.close();
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
+            }
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/json", Parser.gson.toJson(response));
+        }
+    }
+
+    private NanoHTTPD.Response returnResponse(String response) {
+        return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/json", response);
+    }
+
+    private String version() {
+        return "6";
+    }
+
+    private String default_version() {
+        return "\"AnkiConnect v.6\"";
+    }
+
+    private String deckNames() throws Exception {
+        return Parser.gson.toJson(deckAPI.deckNames());
+    }
+
+    private String deckNamesAndIds() throws Exception {
+        return Parser.gson.toJson(deckAPI.deckNamesAndIds());
+    }
+
+    private String modelNames() throws Exception {
+        return Parser.gson.toJson(modelAPI.modelNames());
+    }
+
+    private String modelNamesAndIds() throws Exception {
+        return Parser.gson.toJson(modelAPI.modelNamesAndIds(0));
+    }
+
+    private String modelFieldNames(JsonObject raw_json) throws Exception {
+        String model_name = Parser.getModelNameFromParam(raw_json);
+        if (model_name != null && !model_name.equals("")) {
+            Long model_id = modelAPI.getModelID(model_name, 0);
+
+            return Parser.gson.toJson(modelAPI.modelFieldNames(model_id));
+        } else {
+            Map<String, String> response = new HashMap<>();
+            response.put("result", null);
+            response.put("error", "model was not found: ");
+
+            return Parser.gson.toJson(response);
+        }
+    }
+
+    private String findNotes(JsonObject raw_json) {
+        return Parser.gson.toJson(integratedAPI.noteAPI.findNotes(Parser.getNoteQuery(raw_json)));
+    }
+
+    private String guiBrowse(JsonObject raw_json) {
+        String query = Parser.getNoteQuery(raw_json);
+        return Parser.gson.toJson(integratedAPI.guiBrowse(query));
+    }
+
+    private String canAddNotes(JsonObject raw_json) throws Exception {
+        ArrayList<NoteRequest> notes_to_test = Parser.getNoteFront(raw_json);
+        return Parser.gson.toJson(integratedAPI.canAddNotes(notes_to_test));
+    }
+
+    private String canAddNotesWithErrorDetail(JsonObject raw_json) throws Exception {
+        ArrayList<NoteRequest> notes_to_test = Parser.getNoteFront(raw_json);
+        return Parser.gsonNoSerialize.toJson(integratedAPI.canAddNotesWithErrorDetail(notes_to_test));
+    }
+
+    private String addNote(JsonObject raw_json) throws Exception {
+        Map<String, String> noteValues = Parser.getNoteValues(raw_json);
+
+        ArrayList<MediaRequest> mediaRequests =
+                Parser.getNoteMediaRequests(raw_json);
+        integratedAPI.addMedia(noteValues, mediaRequests);
+
+        String noteId = String.valueOf(integratedAPI.addNote(
+                noteValues,
+                Parser.getDeckName(raw_json),
+                Parser.getModelName(raw_json),
+                Parser.getNoteTags(raw_json)
+        ));
+
+        return noteId;
+    }
+
+    private String addNotes(JsonObject raw_json) throws Exception {
+        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
+        ArrayList<Long> addedNoteIds = new ArrayList<>();
+
+        for (JsonElement noteElement : notes) {
+            JsonObject noteObject = noteElement.getAsJsonObject();
+
+            JsonObject temp_raw_json = new JsonObject();
+            JsonObject params = new JsonObject();
+            params.add("note", noteObject);
+            temp_raw_json.add("params", params);
+
+            Map<String, String> noteValues = Parser.getNoteValues(temp_raw_json);
+
+            ArrayList<MediaRequest> mediaRequests = Parser.getNoteMediaRequests(temp_raw_json);
+            integratedAPI.addMedia(noteValues, mediaRequests);
+
+            Long noteId = integratedAPI.addNote(
+                    noteValues,
+                    Parser.getDeckName(temp_raw_json),
+                    Parser.getModelName(temp_raw_json),
+                    Parser.getNoteTags(temp_raw_json)
+            );
+
+            if (noteId != null) {
+                addedNoteIds.add(noteId);
+            } else {
+                addedNoteIds.add(null);
+            }
+        }
+
+        return Parser.gson.toJson(addedNoteIds);
+    }
+
+    private String deleteNotes(JsonObject raw_json) throws Exception {
+        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
+        long[] ids = new long[noteIds.size()];
+        for (int i = 0; i < noteIds.size(); i++) {
+            ids[i] = noteIds.get(i);
+        }
+        integratedAPI.deleteNotes(ids);
+        return "null";
+    }
+
+    private String updateNoteFields(JsonObject raw_json) throws Exception {
+        integratedAPI.updateNoteFields(
+                Parser.getUpdateNoteFieldsId(raw_json),
+                Parser.getUpdateNoteFieldsFields(raw_json),
+                Parser.getNoteMediaRequests(raw_json)
+        );
+        return "null";
+    }
+
+    private String updateNotes(JsonObject raw_json) throws Exception {
+        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
+
+        for (JsonElement noteElement : notes) {
+            JsonObject noteObject = noteElement.getAsJsonObject();
+
+            JsonObject temp_raw_json = new JsonObject();
+            JsonObject params = new JsonObject();
+            params.add("note", noteObject);
+            temp_raw_json.add("params", params);
+
+            integratedAPI.updateNoteFields(
+                    Parser.getUpdateNoteFieldsId(temp_raw_json),
+                    Parser.getUpdateNoteFieldsFields(temp_raw_json),
+                    Parser.getNoteMediaRequests(temp_raw_json)
+            );
+        }
+
+        return "null";
+    }
+
+    private String storeMediaFile(JsonObject raw_json) throws Exception {
+        BinaryFile binaryFile = new BinaryFile();
+        binaryFile.setFilename(Parser.getMediaFilename(raw_json));
+        binaryFile.setData(Parser.getMediaData(raw_json));
+
+        integratedAPI.storeMediaFile(binaryFile);
+        
+        return "null";
+    }
+
+    private String notesInfo(JsonObject raw_json) throws Exception {
+        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
+        return Parser.gson.toJson(integratedAPI.noteAPI.notesInfo(noteIds));
     }
 }
 </file>
