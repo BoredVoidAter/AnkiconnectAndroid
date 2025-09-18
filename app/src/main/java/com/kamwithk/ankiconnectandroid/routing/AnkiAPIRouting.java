@@ -98,11 +98,6 @@ public class AnkiAPIRouting {
 					return String.valueOf(deckAPI.getDeckID(deckName));
 				}
 			// -------------------------
-
-			case "deckNamesAndIds":
-				return deckNamesAndIds();
-
-			
 			case "multi":
 				JsonArray actions = Parser.getMultiActions(raw_json);
 				JsonArray results = new JsonArray();
