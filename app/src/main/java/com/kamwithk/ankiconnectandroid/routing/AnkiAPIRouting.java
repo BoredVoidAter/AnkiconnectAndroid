@@ -64,8 +64,14 @@ public class AnkiAPIRouting {
                 return canAddNotesWithErrorDetail(raw_json);
             case "addNote":
                 return addNote(raw_json);
+            case "addNotes":
+                return addNotes(raw_json);
+            case "deleteNotes":
+                return deleteNotes(raw_json);
             case "updateNoteFields":
                 return updateNoteFields(raw_json);
+            case "updateNotes":
+                return updateNotes(raw_json);
             case "storeMediaFile":
                 return storeMediaFile(raw_json);
             case "notesInfo":
@@ -88,6 +94,7 @@ public class AnkiAPIRouting {
                 return default_version();
         }
     }
+
     /* taken from anki-connect's web.py: format_success_reply */
     public JsonElement formatSuccessReply(JsonElement raw_json, int version) {
         if (version <= 4) {
@@ -136,7 +143,7 @@ public class AnkiAPIRouting {
     }
 
     private String default_version() {
-        return "AnkiConnect v.6";
+        return "\"AnkiConnect v.6\"";
     }
 
     private String deckNames() throws Exception {
@@ -211,12 +218,75 @@ public class AnkiAPIRouting {
         return noteId;
     }
 
+    private String addNotes(JsonObject raw_json) throws Exception {
+        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
+        ArrayList<Long> addedNoteIds = new ArrayList<>();
+
+        for (JsonElement noteElement : notes) {
+            JsonObject noteObject = noteElement.getAsJsonObject();
+
+            // Create a temporary raw_json for parsing a single note, mimicking an "addNote" request structure
+            JsonObject temp_raw_json = new JsonObject();
+            JsonObject params = new JsonObject();
+            params.add("note", noteObject);
+            temp_raw_json.add("params", params);
+
+            Map<String, String> noteValues = Parser.getNoteValues(temp_raw_json);
+
+            ArrayList<MediaRequest> mediaRequests = Parser.getNoteMediaRequests(temp_raw_json);
+            integratedAPI.addMedia(noteValues, mediaRequests);
+
+            Long noteId = integratedAPI.addNote(
+                    noteValues,
+                    Parser.getDeckName(temp_raw_json),
+                    Parser.getModelName(temp_raw_json),
+                    Parser.getNoteTags(temp_raw_json)
+            );
+
+            if (noteId != null) {
+                addedNoteIds.add(noteId);
+            } else {
+                addedNoteIds.add(null);
+            }
+        }
+
+        return Parser.gson.toJson(addedNoteIds);
+    }
+
+    private String deleteNotes(JsonObject raw_json) throws Exception {
+        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
+        integratedAPI.noteAPI.deleteNotes(noteIds);
+        return "null";
+    }
+
     private String updateNoteFields(JsonObject raw_json) throws Exception {
         integratedAPI.updateNoteFields(
                 Parser.getUpdateNoteFieldsId(raw_json),
                 Parser.getUpdateNoteFieldsFields(raw_json),
                 Parser.getNoteMediaRequests(raw_json)
         );
+        return "null";
+    }
+
+    private String updateNotes(JsonObject raw_json) throws Exception {
+        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
+
+        for (JsonElement noteElement : notes) {
+            JsonObject noteObject = noteElement.getAsJsonObject();
+
+            // Create a temporary raw_json for parsing a single note update
+            JsonObject temp_raw_json = new JsonObject();
+            JsonObject params = new JsonObject();
+            params.add("note", noteObject);
+            temp_raw_json.add("params", params);
+
+            integratedAPI.updateNoteFields(
+                    Parser.getUpdateNoteFieldsId(temp_raw_json),
+                    Parser.getUpdateNoteFieldsFields(temp_raw_json),
+                    Parser.getNoteMediaRequests(temp_raw_json)
+            );
+        }
+
         return "null";
     }
 
