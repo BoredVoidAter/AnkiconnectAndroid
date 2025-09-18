@@ -27,7 +27,7 @@ android {
             if (System.getenv("SIGNING_KEY_STORE_BASE64") != null) {
                 def keyStoreFile = new File(project.rootDir, "release-key.jks")
                 def keyStoreBase64 = System.getenv("SIGNING_KEY_STORE_BASE64")
-                keyStoreFile.write(keyStoreBase64.decodeBase64())
+                keyStoreFile.bytes = keyStoreBase64.decodeBase64()
 
                 storeFile keyStoreFile
                 storePassword System.getenv("SIGNING_STORE_PASSWORD")
