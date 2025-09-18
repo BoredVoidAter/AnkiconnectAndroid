@@ -22,10 +22,26 @@ android {
 
     }
 
+    signingConfigs {
+        release {
+            if (System.getenv("SIGNING_KEY_STORE_BASE64") != null) {
+                def keyStoreFile = new File(project.rootDir, "release-key.jks")
+                def keyStoreBase64 = System.getenv("SIGNING_KEY_STORE_BASE64")
+                keyStoreFile.write(keyStoreBase64.decodeBase64())
+
+                storeFile keyStoreFile
+                storePassword System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
     }
 
