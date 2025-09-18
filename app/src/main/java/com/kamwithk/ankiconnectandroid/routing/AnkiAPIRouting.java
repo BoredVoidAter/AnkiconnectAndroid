@@ -82,27 +82,23 @@ public class AnkiAPIRouting {
 
                 for (JsonElement jsonElement : actions) {
                     JsonObject subAction = jsonElement.getAsJsonObject();
-                    int version = Parser.get_version(subAction, 4);
+                    // int version = Parser.get_version(subAction, 4); // No longer needed here
                     JsonElement subResponse;
                     
                     try {
-                        String rawResultString = findRoute(subAction);
-                        JsonElement parsedResult = JsonParser.parseString(rawResultString);
-                        
                         // ---- FIX STARTS HERE ----
-                        
-                        // If the sub-action was itself a 'multi' request, we should not wrap its result.
-                        // We return the raw result array to match the desktop AnkiConnect behavior.
-                        // For any other action, we wrap it in the standard success/error format.
-                        if (Parser.get_action(subAction).equals("multi")) {
-                            subResponse = parsedResult;
-                        } else {
-                            subResponse = formatSuccessReply(parsedResult, version);
-                        }
+
+                        // Always find the route and parse its raw result.
+                        // The multi action should return a list of raw results,
+                        // never a list of {result: ..., error: ...} objects.
+                        String rawResultString = findRoute(subAction);
+                        subResponse = JsonParser.parseString(rawResultString);
                         
                         // ---- FIX ENDS HERE ----
 
                     } catch (Exception e) {
+                        // If an individual action fails, AnkiConnect desktop returns
+                        // a specific error object in its place in the list.
                         JsonObject errorResponse = new JsonObject();
                         errorResponse.add("result", null);
                         errorResponse.addProperty("error", e.getMessage());
@@ -111,7 +107,7 @@ public class AnkiAPIRouting {
                     results.add(subResponse);
                 }
 
-                return Parser.gson.toJson(results);
+                return Parser.gson.toJson(results
             default:
                 return default_version();
         }
