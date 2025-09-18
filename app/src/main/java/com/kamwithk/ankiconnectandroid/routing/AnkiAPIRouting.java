@@ -299,7 +299,15 @@ public class AnkiAPIRouting {
         binaryFile.setFilename(Parser.getMediaFilename(raw_json));
         binaryFile.setData(Parser.getMediaData(raw_json));
 
-        return Parser.gson.toJson(integratedAPI.storeMediaFile(binaryFile));
+        // Get the single filename returned by the API
+        String filename = integratedAPI.storeMediaFile(binaryFile);
+
+        // Create a list and add the filename to it
+        java.util.List<String> resultList = new java.util.ArrayList<>();
+        resultList.add(filename);
+
+        // Return the list as a JSON array
+        return Parser.gson.toJson(resultList);
     }
 
     private String notesInfo(JsonObject raw_json) throws Exception {
