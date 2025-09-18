@@ -81,37 +81,36 @@ public class AnkiAPIRouting {
 				Long deckId = deckAPI.getDeckID(deckName);
 				return String.valueOf(deckId);
 			case "multi":
-				JsonArray actions = Parser.getMultiActions(raw_json);
-				JsonArray results = new JsonArray();
+                JsonArray actions = Parser.getMultiActions(raw_json);
+                JsonArray results = new JsonArray();
 
-				for (JsonElement jsonElement : actions) {
-					JsonObject subAction = jsonElement.getAsJsonObject();
-					JsonElement subResponse;
-					
-					try {
-						// The result of findRoute is already the final, formatted response
-						// for the sub-action. We just need to parse it and add it to our list.
-						// The double-wrapping was the mistake.
-						String rawResultString = findRoute(subAction);
-						subResponse = JsonParser.parseString(rawResultString);
+                for (JsonElement jsonElement : actions) {
+                    JsonObject subAction = jsonElement.getAsJsonObject();
+                    JsonElement subResponse;
+                    
+                    try {
+                        // findRoute returns the raw, unwrapped result as a string
+                        String rawResultString = findRoute(subAction);
+                        JsonElement rawJson = JsonParser.parseString(rawResultString);
 
-					} catch (Exception e) {
-						// This part is correct. If a sub-action throws, we need to create
-						// a standard error object for it.
-						int version = Parser.get_version(subAction, 4);
-						JsonObject errorResponse = new JsonObject();
-						errorResponse.add("result", null);
-						errorResponse.addProperty("error", e.getMessage());
-						
-						// The error must ALSO be wrapped according to the version of the *main* multi call.
-						// No, the desktop addon returns the error object directly.
-						 subResponse = errorResponse;
-					}
-					results.add(subResponse);
-				}
+                        // We must wrap this raw result into a standard AnkiConnect response object.
+                        // The version of the sub-action should be respected for wrapping.
+                        int subActionVersion = Parser.get_version(subAction, 4);
+                        subResponse = formatSuccessReply(rawJson, subActionVersion);
 
-				// multi itself returns a raw array of the results.
-				return Parser.gson.toJson(results);
+                    } catch (Exception e) {
+                        // If a sub-action fails, create a standard error object for it.
+                        JsonObject errorResponse = new JsonObject();
+                        errorResponse.add("result", null);
+                        errorResponse.addProperty("error", e.getMessage() != null ? e.getMessage() : e.toString());
+                        subResponse = errorResponse;
+                    }
+                    results.add(subResponse);
+                }
+
+                // The result of 'multi' is an array of these wrapped responses.
+                // This array itself is the "raw" result that will be wrapped by findRouteHandleError.
+                return Parser.gson.toJson(results);
             default:
                 return default_version();
         }
@@ -236,8 +235,7 @@ public class AnkiAPIRouting {
 
 	private String addNotes(JsonObject raw_json) throws Exception {
 		JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
-		JsonArray addedNoteResults = new JsonArray(); // This will hold the final array of wrapped results
-		int version = Parser.get_version(raw_json, 4);
+		JsonArray addedNoteIds = new JsonArray(); // This will hold the final array of note IDs or nulls
 
 		for (JsonElement noteElement : notes) {
 			JsonObject noteObject = noteElement.getAsJsonObject();
@@ -258,21 +256,22 @@ public class AnkiAPIRouting {
 						Parser.getNoteTags(temp_raw_json)
 				);
 				
-				// On success, add the WRAPPED note ID to our results array
-				addedNoteResults.add(formatSuccessReply(JsonParser.parseString(String.valueOf(noteId)), version));
+                // Add the note ID or null to the result array
+                if (noteId != null) {
+				    addedNoteIds.add(noteId);
+                } else {
+                    addedNoteIds.add(com.google.gson.JsonNull.INSTANCE);
+                }
 			} catch (Exception e) {
-				// If one note fails, we add a wrapped error object for it.
-				// This is crucial for compatibility.
-				JsonObject errorResponse = new JsonObject();
-				errorResponse.add("result", null);
-				errorResponse.addProperty("error", e.getMessage());
-				addedNoteResults.add(errorResponse);
+				// Per AnkiConnect specification, return null in the array for failed notes
+				addedNoteIds.add(com.google.gson.JsonNull.INSTANCE);
 			}
 		}
 
-		// Return the array of wrapped results. This is what the plugin expects.
-		return Parser.gson.toJson(addedNoteResults);
+		// Return the raw array of note IDs. This will be wrapped into a response object by the caller (findRouteHandleError or multi).
+		return Parser.gson.toJson(addedNoteIds);
 	}
+	
     private String deleteNotes(JsonObject raw_json) throws Exception {
         ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
         long[] ids = new long[noteIds.size()];

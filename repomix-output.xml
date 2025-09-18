@@ -114,6 +114,35 @@ settings.gradle
 <files>
 This section contains the contents of the repository's files.
 
+<file path=".gitignore">
+*.iml
+.gradle
+/local.properties
+.idea/
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.log
+*.apk
+output.json
+misc.xml
+deploymentTargetDropDown.xml
+render.experimental.xml
+*.jks
+*.keystore
+*.hprof
+app/src/main/jniLibs/
+</file>
+
 <file path="app/.gitignore">
 /build
 </file>
@@ -1267,35 +1296,6 @@ Public License instead of this License.  But first, please read
 <http://www.gnu.org/philosophy/why-not-lgpl.html>.
 </file>
 
-<file path=".gitignore">
-*.iml
-.gradle
-/local.properties
-.idea/
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-*.log
-*.apk
-output.json
-misc.xml
-deploymentTargetDropDown.xml
-render.experimental.xml
-*.jks
-*.keystore
-*.hprof
-app/src/main/jniLibs/
-</file>
-
 <file path="app/schemas/com.kamwithk.ankiconnectandroid.routing.database.EntriesDatabase/1.json">
 {
   "formatVersion": 1,
@@ -1947,6 +1947,126 @@ public class Shinmeikai8AudioSource extends LocalAudioSource {
     @Override
     public String getSourceName(Entry entry) {
         return "SMK8 " + entry.display;
+    }
+}
+</file>
+
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/Scraper.java">
+package com.kamwithk.ankiconnectandroid;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.util.Base64;
+
+import androidx.preference.PreferenceManager;
+
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+// Regular expressions and method source - https://github.com/jamesnicolas/yomichan-forvo-server
+public class Scraper {
+    private final Context context;
+    private final String SERVER_HOST = "https://forvo.com";
+    private final String AUDIO_HTTP_HOST = "https://audio00.forvo.com";
+    private final String DEFAULT_FORVO_LANGUAGE = "ja";
+
+    public Scraper(Context context) {
+        this.context = context;
+    }
+
+    public ArrayList<HashMap<String, String>> scrape(String word, String reading) throws IOException {
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        String forvoLanguage = preferences.getString("forvo_language", DEFAULT_FORVO_LANGUAGE);
+
+        ArrayList<HashMap<String, String>> audio_sources = scrapeWord(word, forvoLanguage);
+
+//        Get similar words audio if exact word isn't found
+        if (audio_sources.size() == 0) {
+            audio_sources = scrapeWord(reading, forvoLanguage);
+        }
+        if (audio_sources.size() == 0) {
+            audio_sources = scrapeSearch(word, forvoLanguage);
+        }
+        if (audio_sources.size() == 0) {
+            audio_sources = scrapeSearch(reading, forvoLanguage);
+        }
+
+        return audio_sources;
+    }
+
+    private ArrayList<HashMap<String, String>> scrapeWord(String word, String language) throws IOException {
+        Document document = Jsoup.connect(SERVER_HOST + "/word/" + strip(word) + "/").get();
+        Elements elements = document.select("#language-container-" + language + ">article>ul>li:not(.li-ad)");
+
+        ArrayList<HashMap<String, String>> audio_sources = new ArrayList<>();
+
+        for (Element element : elements) {
+            //System.out.println(element);
+            String url = extractURL(Objects.requireNonNull(element.selectFirst(".play")));
+
+            HashMap<String, String> user_details = new HashMap<>();
+            user_details.put("name", "Forvo (" + extractUsername(element.text()) + ")");
+            user_details.put("url", url);
+            audio_sources.add(user_details);
+        }
+
+        return audio_sources;
+    }
+
+    private ArrayList<HashMap<String, String>> scrapeSearch(String input, String language) throws IOException {
+        Document document = Jsoup.connect(SERVER_HOST + "/search/" + strip(input) + "/" + language + "/").get();
+        Elements elements = document.select("ul.word-play-list-icon-size-l>li>.play");
+
+        ArrayList<HashMap<String, String>> audio_sources = new ArrayList<>();
+
+        for (Element element : elements) {
+            HashMap<String, String> user_details = new HashMap<>();
+            user_details.put("name", "Forvo Search");
+            user_details.put("url", extractURL(element));
+            audio_sources.add(user_details);
+        }
+
+        return audio_sources;
+    }
+
+//    Helper method to get rid of leading/trailing spaces
+    private String strip(String input) {
+        return input.replaceAll("^[ \t]+|[ \t]+$", "");
+    }
+
+    @SuppressWarnings("ResultOfMethodCallIgnored")
+    private String extractURL(Element span) {
+        String play = span.attr("onclick");
+
+        Pattern pattern = Pattern.compile("([^',\\(\\)]+)");
+        Matcher m = pattern.matcher(play);
+
+//        Go to third occurrence
+        m.find();
+        m.find();
+        m.find();
+
+        String file = new String(Base64.decode(m.group(), Base64.DEFAULT), StandardCharsets.UTF_8);
+        return AUDIO_HTTP_HOST + "/mp3/" + file;
+    }
+
+    @SuppressWarnings("ResultOfMethodCallIgnored")
+    private String extractUsername(String text) {
+        Pattern pattern = Pattern.compile("Pronunciation by([^(]+)\\(");
+        Matcher matcher = pattern.matcher(strip(text));
+        matcher.find();
+
+        return strip(Objects.requireNonNull(matcher.group(1)));
     }
 }
 </file>
@@ -2614,124 +2734,157 @@ public class Entry {
 }
 </file>
 
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/Scraper.java">
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/SettingsActivity.java">
 package com.kamwithk.ankiconnectandroid;
 
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.util.Base64;
+import android.content.Intent;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
+import android.widget.Toast;
 
-import androidx.preference.PreferenceManager;
+import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
+import androidx.preference.EditTextPreference;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceFragmentCompat;
 
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+public class SettingsActivity extends AppCompatActivity {
 
-// Regular expressions and method source - https://github.com/jamesnicolas/yomichan-forvo-server
-public class Scraper {
-    private final Context context;
-    private final String SERVER_HOST = "https://forvo.com";
-    private final String AUDIO_HTTP_HOST = "https://audio00.forvo.com";
-    private final String DEFAULT_FORVO_LANGUAGE = "ja";
-
-    public Scraper(Context context) {
-        this.context = context;
-    }
-
-    public ArrayList<HashMap<String, String>> scrape(String word, String reading) throws IOException {
-        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-        String forvoLanguage = preferences.getString("forvo_language", DEFAULT_FORVO_LANGUAGE);
-
-        ArrayList<HashMap<String, String>> audio_sources = scrapeWord(word, forvoLanguage);
-
-//        Get similar words audio if exact word isn't found
-        if (audio_sources.size() == 0) {
-            audio_sources = scrapeWord(reading, forvoLanguage);
-        }
-        if (audio_sources.size() == 0) {
-            audio_sources = scrapeSearch(word, forvoLanguage);
-        }
-        if (audio_sources.size() == 0) {
-            audio_sources = scrapeSearch(reading, forvoLanguage);
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.settings_activity);
+        if (savedInstanceState == null) {
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.settings, new SettingsFragment())
+                    .commit();
         }
 
-        return audio_sources;
-    }
+        Toolbar settingsToolbar = findViewById(R.id.settingsToolbar);
+        setSupportActionBar(settingsToolbar);
 
-    private ArrayList<HashMap<String, String>> scrapeWord(String word, String language) throws IOException {
-        Document document = Jsoup.connect(SERVER_HOST + "/word/" + strip(word) + "/").get();
-        Elements elements = document.select("#language-container-" + language + ">article>ul>li:not(.li-ad)");
-
-        ArrayList<HashMap<String, String>> audio_sources = new ArrayList<>();
-
-        for (Element element : elements) {
-            //System.out.println(element);
-            String url = extractURL(Objects.requireNonNull(element.selectFirst(".play")));
-
-            HashMap<String, String> user_details = new HashMap<>();
-            user_details.put("name", "Forvo (" + extractUsername(element.text()) + ")");
-            user_details.put("url", url);
-            audio_sources.add(user_details);
+        ActionBar actionBar = getSupportActionBar();
+        if (actionBar != null) {
+            // adds back button
+            actionBar.setDisplayHomeAsUpEnabled(true);
         }
-
-        return audio_sources;
     }
 
-    private ArrayList<HashMap<String, String>> scrapeSearch(String input, String language) throws IOException {
-        Document document = Jsoup.connect(SERVER_HOST + "/search/" + strip(input) + "/" + language + "/").get();
-        Elements elements = document.select("ul.word-play-list-icon-size-l>li>.play");
+    public static class SettingsFragment extends PreferenceFragmentCompat {
+        @Override
+        public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
+            setPreferencesFromResource(R.xml.root_preferences, rootKey);
 
-        ArrayList<HashMap<String, String>> audio_sources = new ArrayList<>();
+            Preference preference = findPreference("access_overlay_perms");
+            if (preference != null) {
+                // custom handler of preference: open permissions screen
+                preference.setOnPreferenceClickListener(p -> {
+                    Intent permIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+                    startActivity(permIntent);
+                    return true;
+                });
 
-        for (Element element : elements) {
-            HashMap<String, String> user_details = new HashMap<>();
-            user_details.put("name", "Forvo Search");
-            user_details.put("url", extractURL(element));
-            audio_sources.add(user_details);
+            }
+
+            preference = findPreference("get_dir_path");
+            if (preference != null) {
+                // custom handler of preference: open permissions screen
+                preference.setOnPreferenceClickListener(p -> {
+
+                    Context context = getContext();
+                    if (context == null) {
+                        Toast.makeText(getContext(), "Cannot get local audio folder, as context is null.", Toast.LENGTH_LONG).show();
+                    } else {
+                        Toast.makeText(getContext(), "Local audio folder: " + context.getExternalFilesDir(null), Toast.LENGTH_LONG).show();
+                        // TODO snackbar?
+                        // getView() seems to be null...
+//                        Snackbar snackbar = Snackbar.make(getView().findViewById(R.id.settings),
+//                                "Local audio folder: " + context.getExternalFilesDir(null),
+//                                BaseTransientBottomBar.LENGTH_LONG);
+//                        snackbar.show();
+                    }
+                    return true;
+                });
+
+            }
+
+           EditTextPreference corsHostPreference = findPreference("cors_hostname");
+           if (corsHostPreference != null) {
+                corsHostPreference.setOnBindEditTextListener(editText -> editText.setHint("e.g. http://example.com"));            }
         }
-
-        return audio_sources;
     }
 
-//    Helper method to get rid of leading/trailing spaces
-    private String strip(String input) {
-        return input.replaceAll("^[ \t]+|[ \t]+$", "");
-    }
 
-    @SuppressWarnings("ResultOfMethodCallIgnored")
-    private String extractURL(Element span) {
-        String play = span.attr("onclick");
-
-        Pattern pattern = Pattern.compile("([^',\\(\\)]+)");
-        Matcher m = pattern.matcher(play);
-
-//        Go to third occurrence
-        m.find();
-        m.find();
-        m.find();
-
-        String file = new String(Base64.decode(m.group(), Base64.DEFAULT), StandardCharsets.UTF_8);
-        return AUDIO_HTTP_HOST + "/mp3/" + file;
-    }
-
-    @SuppressWarnings("ResultOfMethodCallIgnored")
-    private String extractUsername(String text) {
-        Pattern pattern = Pattern.compile("Pronunciation by([^(]+)\\(");
-        Matcher matcher = pattern.matcher(strip(text));
-        matcher.find();
-
-        return strip(Objects.requireNonNull(matcher.group(1)));
-    }
 }
+</file>
+
+<file path="app/src/main/res/values/strings.xml">
+<resources>
+    <string name="app_name">Ankiconnect Android</string>
+
+    <string name="action_settings">Settings</string>
+    <string name="settings_overlay_permissions_title">Access Overlay Permissions</string>
+    <string name="settings_permissions_header">Permissions</string>
+    <string name="settings_overlay_permissions_summary">Allows Ankiconnect Android to open AnkiDroid\'s card browser.</string>
+    <string name="settings_other_header">Other</string>
+    <string name="settings_forvo_language_title">Forvo language</string>
+    <string name="settings_forvo_language_summary">Sets the language to use for Forvo audio.</string>
+    <string name="settings_forvo_language_dialog_title">Select Language</string>
+    <string name="get_dir_path_title">Print Local Audio Directory</string>
+    <string name="get_dir_path_title_summary">Prints the expected directory path where the local audio is searched in.</string>
+    <string name="dialog_notif_perm_info">This app uses a persistent notification to inform you that the server is running. Please enable notifications to see this.</string>
+</resources>
+</file>
+
+<file path="app/src/main/res/xml/root_preferences.xml">
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="@string/settings_permissions_header">
+
+        <Preference
+            app:key="access_overlay_perms"
+            app:title="@string/settings_overlay_permissions_title"
+            app:summary="@string/settings_overlay_permissions_summary" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="Access from other sites"
+        app:summary="Allow access from an external site">
+
+        <EditTextPreference
+            app:dialogMessage="Enter the hostname you want to allow access from."
+            app:dialogTitle="Enter CORS Host"
+            app:key="cors_host"
+            app:title="CORS Host"
+            app:useSimpleSummaryProvider="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/settings_other_header">
+
+        <ListPreference
+            app:key="forvo_language"
+            app:title="@string/settings_forvo_language_title"
+            app:summary="@string/settings_forvo_language_summary"
+            android:dialogTitle="@string/settings_forvo_language_dialog_title"
+            android:defaultValue="ja"
+            android:entries="@array/forvo_language_entries"
+            android:entryValues="@array/forvo_language_values" />
+
+        <Preference
+            app:key="get_dir_path"
+            app:title="@string/get_dir_path_title"
+            app:summary="@string/get_dir_path_title_summary" />
+
+    </PreferenceCategory>
+</PreferenceScreen>
 </file>
 
 <file path="build.gradle">
@@ -3150,6 +3303,45 @@ public class MediaAPI {
 }
 </file>
 
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/APIHandler.java">
+package com.kamwithk.ankiconnectandroid.routing;
+
+import android.content.Context;
+import android.util.Log;
+
+import com.google.gson.JsonObject;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
+import com.kamwithk.ankiconnectandroid.request_parsers.Parser;
+import fi.iki.elonen.NanoHTTPD;
+
+import java.util.*;
+
+public class APIHandler {
+    private final AnkiAPIRouting ankiAPIRouting;
+    private final ForvoAPIRouting forvoAPIRouting;
+    private final LocalAudioAPIRouting localAudioAPIRouting;
+
+    public APIHandler(IntegratedAPI integratedAPI, Context context) {
+        ankiAPIRouting = new AnkiAPIRouting(integratedAPI);
+        forvoAPIRouting = new ForvoAPIRouting(context);
+        localAudioAPIRouting = new LocalAudioAPIRouting(context);
+    }
+
+    public NanoHTTPD.Response chooseAPI(String json_string, Map<String, List<String>> parameters) {
+
+        if ((parameters.containsKey("term") || parameters.containsKey("expression")) && parameters.containsKey("reading")) {
+            String reading = Objects.requireNonNull(parameters.get("reading")).get(0);
+
+            return forvoAPIRouting.getAudioHandleError(parameters.get("term"), parameters.get("expression"), reading);
+        } else {
+            Log.d("AnkiConnectAndroid", "received json: " + json_string);
+            JsonObject raw_json = Parser.parse(json_string);
+            return ankiAPIRouting.findRouteHandleError(raw_json);
+        }
+    }
+}
+</file>
+
 <file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/database/EntriesDatabase.java">
 package com.kamwithk.ankiconnectandroid.routing.database;
 
@@ -3224,157 +3416,44 @@ public class LocalAudioRouteHandler extends RouterNanoHTTPD.DefaultHandler {
 }
 </file>
 
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/SettingsActivity.java">
-package com.kamwithk.ankiconnectandroid;
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/localaudiosource/LocalAudioSource.java">
+package com.kamwithk.ankiconnectandroid.routing.localaudiosource;
 
-import android.content.Context;
-import android.content.Intent;
-import android.os.Build;
-import android.os.Bundle;
-import android.provider.Settings;
-import android.widget.Toast;
+import android.net.Uri;
 
-import androidx.appcompat.app.ActionBar;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
-import androidx.preference.EditTextPreference;
-import androidx.preference.Preference;
-import androidx.preference.PreferenceFragmentCompat;
+import com.kamwithk.ankiconnectandroid.Service;
+import com.kamwithk.ankiconnectandroid.routing.database.Entry;
 
+public class LocalAudioSource {
+    private final String sourceID;
+    private final String mediaDir;
 
-public class SettingsActivity extends AppCompatActivity {
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.settings_activity);
-        if (savedInstanceState == null) {
-            getSupportFragmentManager()
-                    .beginTransaction()
-                    .replace(R.id.settings, new SettingsFragment())
-                    .commit();
-        }
-
-        Toolbar settingsToolbar = findViewById(R.id.settingsToolbar);
-        setSupportActionBar(settingsToolbar);
-
-        ActionBar actionBar = getSupportActionBar();
-        if (actionBar != null) {
-            // adds back button
-            actionBar.setDisplayHomeAsUpEnabled(true);
-        }
+    public LocalAudioSource(String sourceID, String mediaDir) {
+        this.sourceID = sourceID;
+        this.mediaDir = mediaDir;
     }
 
-    public static class SettingsFragment extends PreferenceFragmentCompat {
-        @Override
-        public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
-            setPreferencesFromResource(R.xml.root_preferences, rootKey);
-
-            Preference preference = findPreference("access_overlay_perms");
-            if (preference != null) {
-                // custom handler of preference: open permissions screen
-                preference.setOnPreferenceClickListener(p -> {
-                    Intent permIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
-                    startActivity(permIntent);
-                    return true;
-                });
-
-            }
-
-            preference = findPreference("get_dir_path");
-            if (preference != null) {
-                // custom handler of preference: open permissions screen
-                preference.setOnPreferenceClickListener(p -> {
-
-                    Context context = getContext();
-                    if (context == null) {
-                        Toast.makeText(getContext(), "Cannot get local audio folder, as context is null.", Toast.LENGTH_LONG).show();
-                    } else {
-                        Toast.makeText(getContext(), "Local audio folder: " + context.getExternalFilesDir(null), Toast.LENGTH_LONG).show();
-                        // TODO snackbar?
-                        // getView() seems to be null...
-//                        Snackbar snackbar = Snackbar.make(getView().findViewById(R.id.settings),
-//                                "Local audio folder: " + context.getExternalFilesDir(null),
-//                                BaseTransientBottomBar.LENGTH_LONG);
-//                        snackbar.show();
-                    }
-                    return true;
-                });
-
-            }
-
-           EditTextPreference corsHostPreference = findPreference("cors_hostname");
-           if (corsHostPreference != null) {
-                corsHostPreference.setOnBindEditTextListener(editText -> editText.setHint("e.g. http://example.com"));            }
-        }
+    public String getSourceName(Entry entry) {
+        return sourceID;
     }
 
+    public String getMediaDir() {
+        return mediaDir;
+    }
 
+    public String constructFileURL(String filePath) {
+        Uri.Builder builder = new Uri.Builder();
+        String NETLOC = "localhost:" + Service.PORT;
+
+        builder.scheme("http")
+                .encodedAuthority(NETLOC) // encoded to not escape the : character
+                .appendPath("localaudio")
+                .appendPath(sourceID)
+                .appendPath(filePath);
+        String uri = builder.build().toString();
+        return uri;
+    }
 }
-</file>
-
-<file path="app/src/main/res/values/strings.xml">
-<resources>
-    <string name="app_name">Ankiconnect Android</string>
-
-    <string name="action_settings">Settings</string>
-    <string name="settings_overlay_permissions_title">Access Overlay Permissions</string>
-    <string name="settings_permissions_header">Permissions</string>
-    <string name="settings_overlay_permissions_summary">Allows Ankiconnect Android to open AnkiDroid\'s card browser.</string>
-    <string name="settings_other_header">Other</string>
-    <string name="settings_forvo_language_title">Forvo language</string>
-    <string name="settings_forvo_language_summary">Sets the language to use for Forvo audio.</string>
-    <string name="settings_forvo_language_dialog_title">Select Language</string>
-    <string name="get_dir_path_title">Print Local Audio Directory</string>
-    <string name="get_dir_path_title_summary">Prints the expected directory path where the local audio is searched in.</string>
-    <string name="dialog_notif_perm_info">This app uses a persistent notification to inform you that the server is running. Please enable notifications to see this.</string>
-</resources>
-</file>
-
-<file path="app/src/main/res/xml/root_preferences.xml">
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
-
-    <PreferenceCategory app:title="@string/settings_permissions_header">
-
-        <Preference
-            app:key="access_overlay_perms"
-            app:title="@string/settings_overlay_permissions_title"
-            app:summary="@string/settings_overlay_permissions_summary" />
-
-    </PreferenceCategory>
-
-    <PreferenceCategory
-        android:title="Access from other sites"
-        app:summary="Allow access from an external site">
-
-        <EditTextPreference
-            app:dialogMessage="Enter the hostname you want to allow access from."
-            app:dialogTitle="Enter CORS Host"
-            app:key="cors_host"
-            app:title="CORS Host"
-            app:useSimpleSummaryProvider="true" />
-
-    </PreferenceCategory>
-
-    <PreferenceCategory app:title="@string/settings_other_header">
-
-        <ListPreference
-            app:key="forvo_language"
-            app:title="@string/settings_forvo_language_title"
-            app:summary="@string/settings_forvo_language_summary"
-            android:dialogTitle="@string/settings_forvo_language_dialog_title"
-            android:defaultValue="ja"
-            android:entries="@array/forvo_language_entries"
-            android:entryValues="@array/forvo_language_values" />
-
-        <Preference
-            app:key="get_dir_path"
-            app:title="@string/get_dir_path_title"
-            app:summary="@string/get_dir_path_title_summary" />
-
-    </PreferenceCategory>
-</PreferenceScreen>
 </file>
 
 <file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/Router.java">
@@ -3590,85 +3669,6 @@ public class Parser {
 }
 </file>
 
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/APIHandler.java">
-package com.kamwithk.ankiconnectandroid.routing;
-
-import android.content.Context;
-import android.util.Log;
-
-import com.google.gson.JsonObject;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
-import com.kamwithk.ankiconnectandroid.request_parsers.Parser;
-import fi.iki.elonen.NanoHTTPD;
-
-import java.util.*;
-
-public class APIHandler {
-    private final AnkiAPIRouting ankiAPIRouting;
-    private final ForvoAPIRouting forvoAPIRouting;
-    private final LocalAudioAPIRouting localAudioAPIRouting;
-
-    public APIHandler(IntegratedAPI integratedAPI, Context context) {
-        ankiAPIRouting = new AnkiAPIRouting(integratedAPI);
-        forvoAPIRouting = new ForvoAPIRouting(context);
-        localAudioAPIRouting = new LocalAudioAPIRouting(context);
-    }
-
-    public NanoHTTPD.Response chooseAPI(String json_string, Map<String, List<String>> parameters) {
-
-        if ((parameters.containsKey("term") || parameters.containsKey("expression")) && parameters.containsKey("reading")) {
-            String reading = Objects.requireNonNull(parameters.get("reading")).get(0);
-
-            return forvoAPIRouting.getAudioHandleError(parameters.get("term"), parameters.get("expression"), reading);
-        } else {
-            Log.d("AnkiConnectAndroid", "received json: " + json_string);
-            JsonObject raw_json = Parser.parse(json_string);
-            return ankiAPIRouting.findRouteHandleError(raw_json);
-        }
-    }
-}
-</file>
-
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/localaudiosource/LocalAudioSource.java">
-package com.kamwithk.ankiconnectandroid.routing.localaudiosource;
-
-import android.net.Uri;
-
-import com.kamwithk.ankiconnectandroid.Service;
-import com.kamwithk.ankiconnectandroid.routing.database.Entry;
-
-public class LocalAudioSource {
-    private final String sourceID;
-    private final String mediaDir;
-
-    public LocalAudioSource(String sourceID, String mediaDir) {
-        this.sourceID = sourceID;
-        this.mediaDir = mediaDir;
-    }
-
-    public String getSourceName(Entry entry) {
-        return sourceID;
-    }
-
-    public String getMediaDir() {
-        return mediaDir;
-    }
-
-    public String constructFileURL(String filePath) {
-        Uri.Builder builder = new Uri.Builder();
-        String NETLOC = "localhost:" + Service.PORT;
-
-        builder.scheme("http")
-                .encodedAuthority(NETLOC) // encoded to not escape the : character
-                .appendPath("localaudio")
-                .appendPath(sourceID)
-                .appendPath(filePath);
-        String uri = builder.build().toString();
-        return uri;
-    }
-}
-</file>
-
 <file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/localaudiosource/JPodAltAudioSource.java">
 package com.kamwithk.ankiconnectandroid.routing.localaudiosource;
 
@@ -3733,6 +3733,105 @@ public class NHK16AudioSource extends LocalAudioSource {
     @Override
     public String getSourceName(Entry entry) {
         return "NHK16 " + entry.display;
+    }
+}
+</file>
+
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/RouteHandler.java">
+package com.kamwithk.ankiconnectandroid.routing;
+
+import static com.kamwithk.ankiconnectandroid.routing.Router.contentType;
+
+import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import androidx.preference.PreferenceManager;
+
+import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import fi.iki.elonen.NanoHTTPD;
+import fi.iki.elonen.router.RouterNanoHTTPD;
+
+public class RouteHandler extends RouterNanoHTTPD.DefaultHandler {
+
+    private APIHandler apiHandler = null;
+    private static final String PRIVATE_NETWORK_ACCESS_REQUEST = "Access-Control-Request-Private-Network";
+    private static final String PRIVATE_NETWORK_ACCESS_RESPONSE = "Access-Control-Allow-Private-Network";
+
+
+    public RouteHandler() {
+        super();
+    }
+
+    @Override
+    public String getText() {
+        return "not implemented";
+    }
+
+    @Override
+    public String getMimeType() {
+        return "text/json";
+    }
+
+    @Override
+    public NanoHTTPD.Response.IStatus getStatus() {
+        return NanoHTTPD.Response.Status.OK;
+    }
+	
+
+    public NanoHTTPD.Response get(RouterNanoHTTPD.UriResource uriResource, Map<String, String> urlParams, NanoHTTPD.IHTTPSession session) {
+//        Setup
+        Context context = uriResource.initParameter(0, Context.class);
+        if (apiHandler == null) {
+            apiHandler = new APIHandler(new IntegratedAPI(context), context);
+        }
+
+//        Enforce UTF-8 encoding (response doesn't always contain by default)
+        session.getHeaders().put("content-type", contentType);
+
+        Map<String, String> files = new HashMap<>();
+        try {
+            session.parseBody(files);
+        } catch (IOException | NanoHTTPD.ResponseException e) {
+            e.printStackTrace();
+        }
+
+        Map<String, List<String>> parameters = session.getParameters();
+        if (parameters == null || parameters.isEmpty() && files.get("postData") == null) {
+            // No data was provided in the POST request so we return a simple response
+            NanoHTTPD.Response rep = newFixedLengthResponse("Ankiconnect Android is running.");
+            addCorsHeaders(context, rep);
+            return rep;
+        }
+
+        NanoHTTPD.Response rep = apiHandler.chooseAPI(files.get("postData"), parameters);
+
+        // Include this header so that if a public origin is included in the whitelist, then browsers
+        // won't fail due to the private network access check
+        if (Boolean.parseBoolean(session.getHeaders().get(PRIVATE_NETWORK_ACCESS_REQUEST))) {
+            rep.addHeader(PRIVATE_NETWORK_ACCESS_RESPONSE, "true");
+        }
+
+        addCorsHeaders(context, rep);
+        return rep;
+    }
+
+    private void addCorsHeaders(Context context, NanoHTTPD.Response rep) {
+        // Add a CORS header if it is set in the preferences
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+        String corsHost = sharedPreferences.getString("cors_host", "");
+
+        if (!corsHost.trim().equals("")) {
+            rep.addHeader("Access-Control-Allow-Origin", corsHost);
+            rep.addHeader("Access-Control-Allow-Headers", "*");
+        }
     }
 }
 </file>
@@ -4113,105 +4212,6 @@ public class NoteAPI {
             }
         }
         return notesInfoList;
-    }
-}
-</file>
-
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/RouteHandler.java">
-package com.kamwithk.ankiconnectandroid.routing;
-
-import static com.kamwithk.ankiconnectandroid.routing.Router.contentType;
-
-import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
-
-import android.content.Context;
-import android.content.SharedPreferences;
-
-import androidx.preference.PreferenceManager;
-
-import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
-
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import fi.iki.elonen.NanoHTTPD;
-import fi.iki.elonen.router.RouterNanoHTTPD;
-
-public class RouteHandler extends RouterNanoHTTPD.DefaultHandler {
-
-    private APIHandler apiHandler = null;
-    private static final String PRIVATE_NETWORK_ACCESS_REQUEST = "Access-Control-Request-Private-Network";
-    private static final String PRIVATE_NETWORK_ACCESS_RESPONSE = "Access-Control-Allow-Private-Network";
-
-
-    public RouteHandler() {
-        super();
-    }
-
-    @Override
-    public String getText() {
-        return "not implemented";
-    }
-
-    @Override
-    public String getMimeType() {
-        return "text/json";
-    }
-
-    @Override
-    public NanoHTTPD.Response.IStatus getStatus() {
-        return NanoHTTPD.Response.Status.OK;
-    }
-	
-
-    public NanoHTTPD.Response get(RouterNanoHTTPD.UriResource uriResource, Map<String, String> urlParams, NanoHTTPD.IHTTPSession session) {
-//        Setup
-        Context context = uriResource.initParameter(0, Context.class);
-        if (apiHandler == null) {
-            apiHandler = new APIHandler(new IntegratedAPI(context), context);
-        }
-
-//        Enforce UTF-8 encoding (response doesn't always contain by default)
-        session.getHeaders().put("content-type", contentType);
-
-        Map<String, String> files = new HashMap<>();
-        try {
-            session.parseBody(files);
-        } catch (IOException | NanoHTTPD.ResponseException e) {
-            e.printStackTrace();
-        }
-
-        Map<String, List<String>> parameters = session.getParameters();
-        if (parameters == null || parameters.isEmpty() && files.get("postData") == null) {
-            // No data was provided in the POST request so we return a simple response
-            NanoHTTPD.Response rep = newFixedLengthResponse("Ankiconnect Android is running.");
-            addCorsHeaders(context, rep);
-            return rep;
-        }
-
-        NanoHTTPD.Response rep = apiHandler.chooseAPI(files.get("postData"), parameters);
-
-        // Include this header so that if a public origin is included in the whitelist, then browsers
-        // won't fail due to the private network access check
-        if (Boolean.parseBoolean(session.getHeaders().get(PRIVATE_NETWORK_ACCESS_REQUEST))) {
-            rep.addHeader(PRIVATE_NETWORK_ACCESS_RESPONSE, "true");
-        }
-
-        addCorsHeaders(context, rep);
-        return rep;
-    }
-
-    private void addCorsHeaders(Context context, NanoHTTPD.Response rep) {
-        // Add a CORS header if it is set in the preferences
-        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
-        String corsHost = sharedPreferences.getString("cors_host", "");
-
-        if (!corsHost.trim().equals("")) {
-            rep.addHeader("Access-Control-Allow-Origin", corsHost);
-            rep.addHeader("Access-Control-Allow-Headers", "*");
-        }
     }
 }
 </file>
@@ -4620,416 +4620,6 @@ public class IntegratedAPI {
 }
 </file>
 
-<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/AnkiAPIRouting.java">
-package com.kamwithk.ankiconnectandroid.routing;
-
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.BinaryFile;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.DeckAPI;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.MediaAPI;
-import com.kamwithk.ankiconnectandroid.ankidroid_api.ModelAPI;
-import com.kamwithk.ankiconnectandroid.request_parsers.NoteRequest;
-import com.kamwithk.ankiconnectandroid.request_parsers.Parser;
-import com.kamwithk.ankiconnectandroid.request_parsers.MediaRequest;
-
-import fi.iki.elonen.NanoHTTPD;
-
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-
-import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
-
-import android.util.Log;
-
-
-public class AnkiAPIRouting {
-    private final IntegratedAPI integratedAPI;
-    private final DeckAPI deckAPI;
-    private final ModelAPI modelAPI;
-    private final MediaAPI mediaAPI;
-
-    public AnkiAPIRouting(IntegratedAPI integratedAPI) {
-        this.integratedAPI = integratedAPI;
-        deckAPI = integratedAPI.deckAPI;
-        modelAPI = integratedAPI.modelAPI;
-        mediaAPI = integratedAPI.mediaAPI;
-    }
-
-    private String findRoute(JsonObject raw_json) throws Exception {
-        switch (Parser.get_action(raw_json)) {
-            case "version":
-                return version();
-            case "deckNames":
-                return deckNames();
-            case "deckNamesAndIds":
-                return deckNamesAndIds();
-            case "modelNames":
-                return modelNames();
-            case "modelNamesAndIds":
-                return modelNamesAndIds();
-            case "modelFieldNames":
-                return modelFieldNames(raw_json);
-            case "findNotes":
-                return findNotes(raw_json);
-            case "guiBrowse":
-                return guiBrowse(raw_json);
-            case "canAddNotes":
-                return canAddNotes(raw_json);
-            case "canAddNotesWithErrorDetail":
-                return canAddNotesWithErrorDetail(raw_json);
-            case "addNote":
-                return addNote(raw_json);
-            case "addNotes":
-                return addNotes(raw_json);
-            case "deleteNotes":
-                return deleteNotes(raw_json);
-            case "updateNoteFields":
-                return updateNoteFields(raw_json);
-            case "updateNotes":
-                return updateNotes(raw_json);
-            case "storeMediaFile":
-                return storeMediaFile(raw_json);
-            case "notesInfo":
-                return notesInfo(raw_json);
-            case "multi":
-                JsonArray actions = Parser.getMultiActions(raw_json);
-                JsonArray results = new JsonArray();
-
-                for (JsonElement jsonElement : actions) {
-                    JsonObject subAction = jsonElement.getAsJsonObject();
-                    // int version = Parser.get_version(subAction, 4); // No longer needed here
-                    JsonElement subResponse;
-                    
-                    try {
-                        // ---- FIX STARTS HERE ----
-
-                        // Always find the route and parse its raw result.
-                        // The multi action should return a list of raw results,
-                        // never a list of {result: ..., error: ...} objects.
-                        String rawResultString = findRoute(subAction);
-                        subResponse = JsonParser.parseString(rawResultString);
-                        
-                        // ---- FIX ENDS HERE ----
-
-                    } catch (Exception e) {
-                        // If an individual action fails, AnkiConnect desktop returns
-                        // a specific error object in its place in the list.
-                        JsonObject errorResponse = new JsonObject();
-                        errorResponse.add("result", null);
-                        errorResponse.addProperty("error", e.getMessage());
-                        subResponse = errorResponse;
-                    }
-                    results.add(subResponse);
-                }
-
-                return Parser.gson.toJson(results);
-            default:
-                return default_version();
-        }
-    }
-
-    public JsonElement formatSuccessReply(JsonElement raw_json, int version) {
-        if (version <= 4) {
-            return raw_json;
-        } else {
-            JsonObject reply = new JsonObject();
-            reply.add("result", raw_json);
-            reply.add("error", null);
-            return reply;
-        }
-    }
-
-    public NanoHTTPD.Response findRouteHandleError(JsonObject raw_json) {
-        try {
-            int version = Parser.get_version(raw_json, 4);
-            String response = formatSuccessReply(JsonParser.parseString(findRoute(raw_json)), version).toString();
-            Log.d("AnkiConnectAndroid", "response json: " + response);
-            return returnResponse(response);
-        } catch (Exception e) {
-            Map<String, String> response = new HashMap<>();
-            response.put("result", null);
-
-            StringWriter sw = new StringWriter();
-            try {
-                try (PrintWriter pw = new PrintWriter(sw)) {
-                    e.printStackTrace(pw);
-                }
-                response.put("error", e.getMessage() + sw);
-            } finally {
-                try {
-                    sw.close();
-                } catch (IOException ex) {
-                    ex.printStackTrace();
-                }
-            }
-            return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/json", Parser.gson.toJson(response));
-        }
-    }
-
-    private NanoHTTPD.Response returnResponse(String response) {
-        return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/json", response);
-    }
-
-    private String version() {
-        return "6";
-    }
-
-    private String default_version() {
-        return "\"AnkiConnect v.6\"";
-    }
-
-    private String deckNames() throws Exception {
-        return Parser.gson.toJson(deckAPI.deckNames());
-    }
-
-    private String deckNamesAndIds() throws Exception {
-        return Parser.gson.toJson(deckAPI.deckNamesAndIds());
-    }
-
-    private String modelNames() throws Exception {
-        return Parser.gson.toJson(modelAPI.modelNames());
-    }
-
-    private String modelNamesAndIds() throws Exception {
-        return Parser.gson.toJson(modelAPI.modelNamesAndIds(0));
-    }
-
-    private String modelFieldNames(JsonObject raw_json) throws Exception {
-        String model_name = Parser.getModelNameFromParam(raw_json);
-        if (model_name != null && !model_name.equals("")) {
-            Long model_id = modelAPI.getModelID(model_name, 0);
-
-            return Parser.gson.toJson(modelAPI.modelFieldNames(model_id));
-        } else {
-            Map<String, String> response = new HashMap<>();
-            response.put("result", null);
-            response.put("error", "model was not found: ");
-
-            return Parser.gson.toJson(response);
-        }
-    }
-
-    private String findNotes(JsonObject raw_json) {
-        return Parser.gson.toJson(integratedAPI.noteAPI.findNotes(Parser.getNoteQuery(raw_json)));
-    }
-
-    private String guiBrowse(JsonObject raw_json) {
-        String query = Parser.getNoteQuery(raw_json);
-        return Parser.gson.toJson(integratedAPI.guiBrowse(query));
-    }
-
-    private String canAddNotes(JsonObject raw_json) throws Exception {
-        ArrayList<NoteRequest> notes_to_test = Parser.getNoteFront(raw_json);
-        return Parser.gson.toJson(integratedAPI.canAddNotes(notes_to_test));
-    }
-
-    private String canAddNotesWithErrorDetail(JsonObject raw_json) throws Exception {
-        ArrayList<NoteRequest> notes_to_test = Parser.getNoteFront(raw_json);
-        return Parser.gsonNoSerialize.toJson(integratedAPI.canAddNotesWithErrorDetail(notes_to_test));
-    }
-
-    private String addNote(JsonObject raw_json) throws Exception {
-        Map<String, String> noteValues = Parser.getNoteValues(raw_json);
-
-        ArrayList<MediaRequest> mediaRequests =
-                Parser.getNoteMediaRequests(raw_json);
-        integratedAPI.addMedia(noteValues, mediaRequests);
-
-        String noteId = String.valueOf(integratedAPI.addNote(
-                noteValues,
-                Parser.getDeckName(raw_json),
-                Parser.getModelName(raw_json),
-                Parser.getNoteTags(raw_json)
-        ));
-
-        return noteId;
-    }
-
-    private String addNotes(JsonObject raw_json) throws Exception {
-        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
-        ArrayList<Long> addedNoteIds = new ArrayList<>();
-
-        for (JsonElement noteElement : notes) {
-            JsonObject noteObject = noteElement.getAsJsonObject();
-
-            JsonObject temp_raw_json = new JsonObject();
-            JsonObject params = new JsonObject();
-            params.add("note", noteObject);
-            temp_raw_json.add("params", params);
-
-            Map<String, String> noteValues = Parser.getNoteValues(temp_raw_json);
-
-            ArrayList<MediaRequest> mediaRequests = Parser.getNoteMediaRequests(temp_raw_json);
-            integratedAPI.addMedia(noteValues, mediaRequests);
-
-            Long noteId = integratedAPI.addNote(
-                    noteValues,
-                    Parser.getDeckName(temp_raw_json),
-                    Parser.getModelName(temp_raw_json),
-                    Parser.getNoteTags(temp_raw_json)
-            );
-
-            if (noteId != null) {
-                addedNoteIds.add(noteId);
-            } else {
-                addedNoteIds.add(null);
-            }
-        }
-
-        return Parser.gson.toJson(addedNoteIds);
-    }
-
-    private String deleteNotes(JsonObject raw_json) throws Exception {
-        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
-        long[] ids = new long[noteIds.size()];
-        for (int i = 0; i < noteIds.size(); i++) {
-            ids[i] = noteIds.get(i);
-        }
-        integratedAPI.deleteNotes(ids);
-        return "null";
-    }
-
-    private String updateNoteFields(JsonObject raw_json) throws Exception {
-        integratedAPI.updateNoteFields(
-                Parser.getUpdateNoteFieldsId(raw_json),
-                Parser.getUpdateNoteFieldsFields(raw_json),
-                Parser.getNoteMediaRequests(raw_json)
-        );
-        return "null";
-    }
-
-    private String updateNotes(JsonObject raw_json) throws Exception {
-        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
-
-        for (JsonElement noteElement : notes) {
-            JsonObject noteObject = noteElement.getAsJsonObject();
-
-            JsonObject temp_raw_json = new JsonObject();
-            JsonObject params = new JsonObject();
-            params.add("note", noteObject);
-            temp_raw_json.add("params", params);
-
-            integratedAPI.updateNoteFields(
-                    Parser.getUpdateNoteFieldsId(temp_raw_json),
-                    Parser.getUpdateNoteFieldsFields(temp_raw_json),
-                    Parser.getNoteMediaRequests(temp_raw_json)
-            );
-        }
-
-        return "null";
-    }
-
-    private String storeMediaFile(JsonObject raw_json) throws Exception {
-        BinaryFile binaryFile = new BinaryFile();
-        binaryFile.setFilename(Parser.getMediaFilename(raw_json));
-        binaryFile.setData(Parser.getMediaData(raw_json));
-
-        integratedAPI.storeMediaFile(binaryFile);
-        
-        return "null";
-    }
-
-    private String notesInfo(JsonObject raw_json) throws Exception {
-        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
-        return Parser.gson.toJson(integratedAPI.noteAPI.notesInfo(noteIds));
-    }
-}
-</file>
-
-<file path="app/build.gradle">
-plugins {
-    id 'com.android.application'
-}
-
-android {
-    compileSdk 33
-
-    defaultConfig {
-        applicationId "com.kamwithk.ankiconnectandroid"
-        minSdk 26
-        targetSdk 33
-        versionCode 15
-        versionName "1.15"
-
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-
-        javaCompileOptions {
-            annotationProcessorOptions {
-                arguments += ["room.schemaLocation": "$projectDir/schemas".toString()]
-            }
-        }
-
-    }
-
-    signingConfigs {
-        release {
-            if (System.getenv("SIGNING_KEY_STORE_BASE64") != null) {
-                def keyStoreFile = new File(project.rootDir, "release-key.jks")
-                def keyStoreBase64 = System.getenv("SIGNING_KEY_STORE_BASE64")
-                keyStoreFile.bytes = keyStoreBase64.decodeBase64()
-
-                storeFile keyStoreFile
-                storePassword System.getenv("SIGNING_STORE_PASSWORD")
-                keyAlias System.getenv("SIGNING_KEY_ALIAS")
-                keyPassword System.getenv("SIGNING_KEY_PASSWORD")
-            }
-        }
-    }
-
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
-        }
-    }
-
-    dependenciesInfo {
-        // Disables dependency metadata when building APKs.
-        includeInApk = false
-        // Disables dependency metadata when building Android App Bundles.
-        includeInBundle = false
-    }
-
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_9
-        targetCompatibility JavaVersion.VERSION_1_9
-    }
-    namespace 'com.kamwithk.ankiconnectandroid'
-}
-
-dependencies {
-
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.core:core:1.9.0'
-    implementation 'com.google.android.material:material:1.8.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'com.google.code.gson:gson:2.9.0'
-    implementation 'org.nanohttpd:nanohttpd:2.3.1'
-    implementation 'org.nanohttpd:nanohttpd-nanolets:2.3.1'
-    implementation 'com.github.ankidroid:Anki-Android:2.17alpha14'
-    implementation 'org.jsoup:jsoup:1.14.3'
-    implementation 'androidx.preference:preference:1.2.0'
-
-    def room_version = "2.5.0"
-    implementation "androidx.room:room-runtime:$room_version"
-    annotationProcessor "androidx.room:room-compiler:$room_version"
-
-
-    testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
-}
-</file>
-
 <file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/LocalAudioAPIRouting.java">
 package com.kamwithk.ankiconnectandroid.routing;
 
@@ -5288,6 +4878,425 @@ public class LocalAudioAPIRouting {
         }
         return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, mimeType, new ByteArrayInputStream(data), data.length);
 
+    }
+}
+</file>
+
+<file path="app/build.gradle">
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.kamwithk.ankiconnectandroid"
+        minSdk 26
+        targetSdk 33
+        versionCode 15
+        versionName "1.15"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += ["room.schemaLocation": "$projectDir/schemas".toString()]
+            }
+        }
+
+    }
+
+    signingConfigs {
+        release {
+            if (System.getenv("SIGNING_KEY_STORE_BASE64") != null) {
+                def keyStoreFile = new File(project.rootDir, "release-key.jks")
+                def keyStoreBase64 = System.getenv("SIGNING_KEY_STORE_BASE64")
+                keyStoreFile.bytes = keyStoreBase64.decodeBase64()
+
+                storeFile keyStoreFile
+                storePassword System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+    }
+
+    dependenciesInfo {
+        // Disables dependency metadata when building APKs.
+        includeInApk = false
+        // Disables dependency metadata when building Android App Bundles.
+        includeInBundle = false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_9
+        targetCompatibility JavaVersion.VERSION_1_9
+    }
+    namespace 'com.kamwithk.ankiconnectandroid'
+}
+
+dependencies {
+
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core:1.9.0'
+    implementation 'com.google.android.material:material:1.8.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.google.code.gson:gson:2.9.0'
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+    implementation 'org.nanohttpd:nanohttpd-nanolets:2.3.1'
+    implementation 'com.github.ankidroid:Anki-Android:2.17alpha14'
+    implementation 'org.jsoup:jsoup:1.14.3'
+    implementation 'androidx.preference:preference:1.2.0'
+
+    def room_version = "2.5.0"
+    implementation "androidx.room:room-runtime:$room_version"
+    annotationProcessor "androidx.room:room-compiler:$room_version"
+
+
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+</file>
+
+<file path="app/src/main/java/com/kamwithk/ankiconnectandroid/routing/AnkiAPIRouting.java">
+package com.kamwithk.ankiconnectandroid.routing;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.BinaryFile;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.DeckAPI;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.IntegratedAPI;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.MediaAPI;
+import com.kamwithk.ankiconnectandroid.ankidroid_api.ModelAPI;
+import com.kamwithk.ankiconnectandroid.request_parsers.NoteRequest;
+import com.kamwithk.ankiconnectandroid.request_parsers.Parser;
+import com.kamwithk.ankiconnectandroid.request_parsers.MediaRequest;
+
+import fi.iki.elonen.NanoHTTPD;
+
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+
+import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
+
+import android.util.Log;
+
+
+public class AnkiAPIRouting {
+    private final IntegratedAPI integratedAPI;
+    private final DeckAPI deckAPI;
+    private final ModelAPI modelAPI;
+    private final MediaAPI mediaAPI;
+
+    public AnkiAPIRouting(IntegratedAPI integratedAPI) {
+        this.integratedAPI = integratedAPI;
+        deckAPI = integratedAPI.deckAPI;
+        modelAPI = integratedAPI.modelAPI;
+        mediaAPI = integratedAPI.mediaAPI;
+    }
+
+    private String findRoute(JsonObject raw_json) throws Exception {
+        switch (Parser.get_action(raw_json)) {
+            case "version":
+                return version();
+            case "deckNames":
+                return deckNames();
+            case "deckNamesAndIds":
+                return deckNamesAndIds();
+            case "modelNames":
+                return modelNames();
+            case "modelNamesAndIds":
+                return modelNamesAndIds();
+            case "modelFieldNames":
+                return modelFieldNames(raw_json);
+            case "findNotes":
+                return findNotes(raw_json);
+            case "guiBrowse":
+                return guiBrowse(raw_json);
+            case "canAddNotes":
+                return canAddNotes(raw_json);
+            case "canAddNotesWithErrorDetail":
+                return canAddNotesWithErrorDetail(raw_json);
+            case "addNote":
+                return addNote(raw_json);
+            case "addNotes":
+                return addNotes(raw_json);
+            case "deleteNotes":
+                return deleteNotes(raw_json);
+            case "updateNoteFields":
+                return updateNoteFields(raw_json);
+            case "updateNotes":
+                return updateNotes(raw_json);
+            case "storeMediaFile":
+                return storeMediaFile(raw_json);
+            case "notesInfo":
+                return notesInfo(raw_json);
+			case "createDeck":
+				String deckName = raw_json.get("params").getAsJsonObject().get("deck").getAsString();
+				Long deckId = deckAPI.getDeckID(deckName);
+				return String.valueOf(deckId);
+			case "multi":
+				JsonArray actions = Parser.getMultiActions(raw_json);
+				JsonArray results = new JsonArray();
+
+				for (JsonElement jsonElement : actions) {
+					JsonObject subAction = jsonElement.getAsJsonObject();
+					JsonElement subResponse;
+					
+					try {
+						// The result of findRoute is already the final, formatted response
+						// for the sub-action. We just need to parse it and add it to our list.
+						// The double-wrapping was the mistake.
+						String rawResultString = findRoute(subAction);
+						subResponse = JsonParser.parseString(rawResultString);
+
+					} catch (Exception e) {
+						// This part is correct. If a sub-action throws, we need to create
+						// a standard error object for it.
+						int version = Parser.get_version(subAction, 4);
+						JsonObject errorResponse = new JsonObject();
+						errorResponse.add("result", null);
+						errorResponse.addProperty("error", e.getMessage());
+						
+						// The error must ALSO be wrapped according to the version of the *main* multi call.
+						// No, the desktop addon returns the error object directly.
+						 subResponse = errorResponse;
+					}
+					results.add(subResponse);
+				}
+
+				// multi itself returns a raw array of the results.
+				return Parser.gson.toJson(results);
+            default:
+                return default_version();
+        }
+    }
+
+    public JsonElement formatSuccessReply(JsonElement raw_json, int version) {
+        if (version <= 4) {
+            return raw_json;
+        } else {
+            JsonObject reply = new JsonObject();
+            reply.add("result", raw_json);
+            reply.add("error", null);
+            return reply;
+        }
+    }
+
+    public NanoHTTPD.Response findRouteHandleError(JsonObject raw_json) {
+        try {
+            int version = Parser.get_version(raw_json, 4);
+            String response = formatSuccessReply(JsonParser.parseString(findRoute(raw_json)), version).toString();
+            Log.d("AnkiConnectAndroid", "response json: " + response);
+            return returnResponse(response);
+        } catch (Exception e) {
+            Map<String, String> response = new HashMap<>();
+            response.put("result", null);
+
+            StringWriter sw = new StringWriter();
+            try {
+                try (PrintWriter pw = new PrintWriter(sw)) {
+                    e.printStackTrace(pw);
+                }
+                response.put("error", e.getMessage() + sw);
+            } finally {
+                try {
+                    sw.close();
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
+            }
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/json", Parser.gson.toJson(response));
+        }
+    }
+
+    private NanoHTTPD.Response returnResponse(String response) {
+        return newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "text/json", response);
+    }
+
+    private String version() {
+        return "6";
+    }
+
+    private String default_version() {
+        return "\"AnkiConnect v.6\"";
+    }
+
+    private String deckNames() throws Exception {
+        return Parser.gson.toJson(deckAPI.deckNames());
+    }
+
+    private String deckNamesAndIds() throws Exception {
+        return Parser.gson.toJson(deckAPI.deckNamesAndIds());
+    }
+
+    private String modelNames() throws Exception {
+        return Parser.gson.toJson(modelAPI.modelNames());
+    }
+
+    private String modelNamesAndIds() throws Exception {
+        return Parser.gson.toJson(modelAPI.modelNamesAndIds(0));
+    }
+
+    private String modelFieldNames(JsonObject raw_json) throws Exception {
+        String model_name = Parser.getModelNameFromParam(raw_json);
+        if (model_name != null && !model_name.equals("")) {
+            Long model_id = modelAPI.getModelID(model_name, 0);
+
+            return Parser.gson.toJson(modelAPI.modelFieldNames(model_id));
+        } else {
+            Map<String, String> response = new HashMap<>();
+            response.put("result", null);
+            response.put("error", "model was not found: ");
+
+            return Parser.gson.toJson(response);
+        }
+    }
+
+    private String findNotes(JsonObject raw_json) {
+        return Parser.gson.toJson(integratedAPI.noteAPI.findNotes(Parser.getNoteQuery(raw_json)));
+    }
+
+    private String guiBrowse(JsonObject raw_json) {
+        String query = Parser.getNoteQuery(raw_json);
+        return Parser.gson.toJson(integratedAPI.guiBrowse(query));
+    }
+
+    private String canAddNotes(JsonObject raw_json) throws Exception {
+        ArrayList<NoteRequest> notes_to_test = Parser.getNoteFront(raw_json);
+        return Parser.gson.toJson(integratedAPI.canAddNotes(notes_to_test));
+    }
+
+    private String canAddNotesWithErrorDetail(JsonObject raw_json) throws Exception {
+        ArrayList<NoteRequest> notes_to_test = Parser.getNoteFront(raw_json);
+        return Parser.gsonNoSerialize.toJson(integratedAPI.canAddNotesWithErrorDetail(notes_to_test));
+    }
+
+    private String addNote(JsonObject raw_json) throws Exception {
+        Map<String, String> noteValues = Parser.getNoteValues(raw_json);
+
+        ArrayList<MediaRequest> mediaRequests =
+                Parser.getNoteMediaRequests(raw_json);
+        integratedAPI.addMedia(noteValues, mediaRequests);
+
+        String noteId = String.valueOf(integratedAPI.addNote(
+                noteValues,
+                Parser.getDeckName(raw_json),
+                Parser.getModelName(raw_json),
+                Parser.getNoteTags(raw_json)
+        ));
+
+        return noteId;
+    }
+
+	private String addNotes(JsonObject raw_json) throws Exception {
+		JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
+		JsonArray addedNoteResults = new JsonArray(); // This will hold the final array of wrapped results
+		int version = Parser.get_version(raw_json, 4);
+
+		for (JsonElement noteElement : notes) {
+			JsonObject noteObject = noteElement.getAsJsonObject();
+			JsonObject temp_raw_json = new JsonObject();
+			JsonObject params = new JsonObject();
+			params.add("note", noteObject);
+			temp_raw_json.add("params", params);
+
+			Long noteId = null;
+			try {
+				Map<String, String> noteValues = Parser.getNoteValues(temp_raw_json);
+				ArrayList<MediaRequest> mediaRequests = Parser.getNoteMediaRequests(temp_raw_json);
+				integratedAPI.addMedia(noteValues, mediaRequests);
+				noteId = integratedAPI.addNote(
+						noteValues,
+						Parser.getDeckName(temp_raw_json),
+						Parser.getModelName(temp_raw_json),
+						Parser.getNoteTags(temp_raw_json)
+				);
+				
+				// On success, add the WRAPPED note ID to our results array
+				addedNoteResults.add(formatSuccessReply(JsonParser.parseString(String.valueOf(noteId)), version));
+			} catch (Exception e) {
+				// If one note fails, we add a wrapped error object for it.
+				// This is crucial for compatibility.
+				JsonObject errorResponse = new JsonObject();
+				errorResponse.add("result", null);
+				errorResponse.addProperty("error", e.getMessage());
+				addedNoteResults.add(errorResponse);
+			}
+		}
+
+		// Return the array of wrapped results. This is what the plugin expects.
+		return Parser.gson.toJson(addedNoteResults);
+	}
+    private String deleteNotes(JsonObject raw_json) throws Exception {
+        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
+        long[] ids = new long[noteIds.size()];
+        for (int i = 0; i < noteIds.size(); i++) {
+            ids[i] = noteIds.get(i);
+        }
+        integratedAPI.deleteNotes(ids);
+        return "null";
+    }
+
+    private String updateNoteFields(JsonObject raw_json) throws Exception {
+        integratedAPI.updateNoteFields(
+                Parser.getUpdateNoteFieldsId(raw_json),
+                Parser.getUpdateNoteFieldsFields(raw_json),
+                Parser.getNoteMediaRequests(raw_json)
+        );
+        return "null";
+    }
+
+    private String updateNotes(JsonObject raw_json) throws Exception {
+        JsonArray notes = raw_json.get("params").getAsJsonObject().get("notes").getAsJsonArray();
+
+        for (JsonElement noteElement : notes) {
+            JsonObject noteObject = noteElement.getAsJsonObject();
+
+            JsonObject temp_raw_json = new JsonObject();
+            JsonObject params = new JsonObject();
+            params.add("note", noteObject);
+            temp_raw_json.add("params", params);
+
+            integratedAPI.updateNoteFields(
+                    Parser.getUpdateNoteFieldsId(temp_raw_json),
+                    Parser.getUpdateNoteFieldsFields(temp_raw_json),
+                    Parser.getNoteMediaRequests(temp_raw_json)
+            );
+        }
+
+        return "null";
+    }
+
+    private String storeMediaFile(JsonObject raw_json) throws Exception {
+        BinaryFile binaryFile = new BinaryFile();
+        binaryFile.setFilename(Parser.getMediaFilename(raw_json));
+        binaryFile.setData(Parser.getMediaData(raw_json));
+
+        integratedAPI.storeMediaFile(binaryFile);
+        
+        return "null";
+    }
+
+    private String notesInfo(JsonObject raw_json) throws Exception {
+        ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
+        return Parser.gson.toJson(integratedAPI.noteAPI.notesInfo(noteIds));
     }
 }
 </file>
