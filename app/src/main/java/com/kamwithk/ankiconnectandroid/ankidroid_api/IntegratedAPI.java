@@ -362,6 +362,18 @@ public class IntegratedAPI {
         noteAPI.updateNoteFields(note_id, cardFields);
     }
 
+    public int deleteNotes(long[] noteIds) {
+        if (noteIds == null || noteIds.length == 0) {
+            return 0;
+        }
+        String[] selectionArgs = new String[noteIds.length];
+        for (int i = 0; i < noteIds.length; i++) {
+            selectionArgs[i] = String.valueOf(noteIds[i]);
+        }
+        String selection = FlashCardsContract.Note._ID + " IN (" + new String(new char[noteIds.length - 1]).replace("\0", "?,") + "?)";
+        return context.getContentResolver().delete(FlashCardsContract.Note.CONTENT_URI, selection, selectionArgs);
+    }
+
     public String storeMediaFile(BinaryFile binaryFile) throws IOException {
         return mediaAPI.storeMediaFile(binaryFile.getFilename(), binaryFile.getData());
     }

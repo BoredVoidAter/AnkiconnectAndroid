@@ -255,7 +255,11 @@ public class AnkiAPIRouting {
 
     private String deleteNotes(JsonObject raw_json) throws Exception {
         ArrayList<Long> noteIds = Parser.getNoteIds(raw_json);
-        integratedAPI.noteAPI.deleteNotes(noteIds);
+        long[] ids = new long[noteIds.size()];
+        for (int i = 0; i < noteIds.size(); i++) {
+            ids[i] = noteIds.get(i);
+        }
+        integratedAPI.deleteNotes(ids);
         return "null";
     }
 
