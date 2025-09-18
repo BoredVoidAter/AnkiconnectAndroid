@@ -45,28 +45,6 @@ public class RouteHandler extends RouterNanoHTTPD.DefaultHandler {
         return NanoHTTPD.Response.Status.OK;
     }
 	
-	@Override
-    public Response serve(IHTTPSession session) {
-        if (Method.OPTIONS.equals(session.getMethod())) {
-            // This is a pre-flight request for CORS. We must respond successfully
-            // for the browser to send the actual POST request.
-            Response response = newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, null, 0);
-
-            // We must add the same CORS headers to the pre-flight response
-            android.content.SharedPreferences sharedPreferences = androidx.preference.PreferenceManager.getDefaultSharedPreferences(this.context);
-            String corsHost = sharedPreferences.getString("cors_host", "");
-            if (!corsHost.trim().equals("")) {
-                response.addHeader("Access-Control-Allow-Origin", corsHost);
-                response.addHeader("Access-Control-Allow-Headers", "*");
-                response.addHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-            }
-            
-            return response;
-        }
-
-        // For all other methods (like POST and GET), let the default router do its job.
-        return super.serve(session);
-    }
 
     public NanoHTTPD.Response get(RouterNanoHTTPD.UriResource uriResource, Map<String, String> urlParams, NanoHTTPD.IHTTPSession session) {
 //        Setup

@@ -76,7 +76,7 @@ public class AnkiAPIRouting {
                 return storeMediaFile(raw_json);
             case "notesInfo":
                 return notesInfo(raw_json);
-			case "multi":
+            case "multi":
                 JsonArray actions = Parser.getMultiActions(raw_json);
                 JsonArray results = new JsonArray();
 
@@ -86,14 +86,10 @@ public class AnkiAPIRouting {
                     JsonElement subResponse;
                     
                     try {
-                        // Attempt to process the sub-action
                         String rawResultString = findRoute(subAction);
                         JsonElement parsedResult = JsonParser.parseString(rawResultString);
-                        
-                        // If it succeeds, format a success reply
                         subResponse = formatSuccessReply(parsedResult, version);
                     } catch (Exception e) {
-                        // If it fails, create a specific error object for this sub-action
                         JsonObject errorResponse = new JsonObject();
                         errorResponse.add("result", null);
                         errorResponse.addProperty("error", e.getMessage());
@@ -108,7 +104,6 @@ public class AnkiAPIRouting {
         }
     }
 
-    /* taken from anki-connect's web.py: format_success_reply */
     public JsonElement formatSuccessReply(JsonElement raw_json, int version) {
         if (version <= 4) {
             return raw_json;
@@ -209,11 +204,6 @@ public class AnkiAPIRouting {
         return Parser.gsonNoSerialize.toJson(integratedAPI.canAddNotesWithErrorDetail(notes_to_test));
     }
 
-    /**
-     * Add a new note to Anki.
-     * The note can include media files, which will be downloaded.
-     * AnkiConnect desktop also supports other formats, but this method only supports downloadable media files.
-     */
     private String addNote(JsonObject raw_json) throws Exception {
         Map<String, String> noteValues = Parser.getNoteValues(raw_json);
 
@@ -238,7 +228,6 @@ public class AnkiAPIRouting {
         for (JsonElement noteElement : notes) {
             JsonObject noteObject = noteElement.getAsJsonObject();
 
-            // Create a temporary raw_json for parsing a single note, mimicking an "addNote" request structure
             JsonObject temp_raw_json = new JsonObject();
             JsonObject params = new JsonObject();
             params.add("note", noteObject);
@@ -291,7 +280,6 @@ public class AnkiAPIRouting {
         for (JsonElement noteElement : notes) {
             JsonObject noteObject = noteElement.getAsJsonObject();
 
-            // Create a temporary raw_json for parsing a single note update
             JsonObject temp_raw_json = new JsonObject();
             JsonObject params = new JsonObject();
             params.add("note", noteObject);
@@ -311,12 +299,9 @@ public class AnkiAPIRouting {
         BinaryFile binaryFile = new BinaryFile();
         binaryFile.setFilename(Parser.getMediaFilename(raw_json));
         binaryFile.setData(Parser.getMediaData(raw_json));
-        
-        // The desktop API returns null on success, so we do the same.
-        // We still call the method to actually store the file, but we discard its return value.
+
         integratedAPI.storeMediaFile(binaryFile);
         
-        // Return the JSON literal "null" as a string.
         return "null";
     }
 
